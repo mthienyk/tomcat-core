@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+export const AgentContextSchema = z
+  .object({
+    currentStartupId: z.string().min(1).optional(),
+    currentStartupName: z.string().min(1).optional(),
+    currentPortfolioCompanyId: z.string().min(1).optional(),
+    currentDealId: z.string().min(1).optional(),
+    currentBoardId: z.string().min(1).optional(),
+    selectedDocumentId: z.string().min(1).optional(),
+  })
+  .strict();
+
+export type AgentContext = z.infer<typeof AgentContextSchema>;
+
 export const CoreToolNameSchema = z.enum([
   "search_startups",
   "read_startup_notes",
@@ -9,19 +22,10 @@ export const CoreToolNameSchema = z.enum([
 
 export type CoreToolName = z.infer<typeof CoreToolNameSchema>;
 
-export const AgentToolCallSchema = z.object({
-  toolName: CoreToolNameSchema,
-  arguments: z.record(z.unknown()).default({}),
-});
-
-export type AgentToolCall = z.infer<typeof AgentToolCallSchema>;
-
-export const AgentPlanSchema = z.object({
-  reasoning: z.string().min(1).max(800),
-  toolCalls: z.array(AgentToolCallSchema).max(4),
-});
-
-export type AgentPlan = z.infer<typeof AgentPlanSchema>;
+export type AgentToolCall = {
+  toolName: CoreToolName;
+  arguments: Record<string, unknown>;
+};
 
 export type AgentToolResult = {
   toolName: CoreToolName;

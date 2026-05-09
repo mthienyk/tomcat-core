@@ -49,6 +49,7 @@ const EnvSchema = z.object({
 
   HUBSPOT_API_TOKEN: z.string().optional(),
   GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: z.string().optional(),
   MONDAY_API_TOKEN: z.string().optional(),
 
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -79,6 +80,7 @@ export type AppConfig = {
   connectors: {
     hubspotToken: string | undefined;
     driveServiceAccountJson: string | undefined;
+    driveServiceAccountFile: string | undefined;
     mondayToken: string | undefined;
   };
   llm: {
@@ -116,6 +118,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     connectors: {
       hubspotToken: parsed.HUBSPOT_API_TOKEN,
       driveServiceAccountJson: parsed.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
+      driveServiceAccountFile: parsed.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE,
       mondayToken: parsed.MONDAY_API_TOKEN,
     },
     llm: {

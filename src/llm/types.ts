@@ -16,11 +16,58 @@ export type LlmStructuredRequest<TSchema extends ZodTypeAny> = {
   maxTokens?: number;
 };
 
+export type LlmJsonSchema = Record<string, unknown>;
+
+export type LlmTool = {
+  name: string;
+  description: string;
+  inputSchema: LlmJsonSchema;
+};
+
+export type LlmAssistantToolUse = {
+  id: string;
+  name: string;
+  input: unknown;
+  providerMetadata?: Record<string, unknown>;
+};
+
+export type LlmToolResult = {
+  toolUseId: string;
+  content: string;
+  isError: boolean;
+};
+
+export type LlmAgentMessage =
+  | { role: "user"; content: string }
+  | {
+      role: "assistant";
+      content: string;
+      toolUses: LlmAssistantToolUse[];
+    }
+  | { role: "tool"; results: LlmToolResult[] };
+
+export type LlmStopReason = "end_turn" | "tool_use" | "max_tokens" | "other";
+
+export type LlmAgentStepRequest = {
+  model: string | undefined;
+  system: string;
+  messages: LlmAgentMessage[];
+  tools: LlmTool[];
+  maxTokens?: number;
+};
+
+export type LlmAgentStepResult = {
+  text: string;
+  toolUses: LlmAssistantToolUse[];
+  stopReason: LlmStopReason;
+};
+
 export interface LlmProvider {
   readonly name: LlmProviderName;
   generateStructured<TSchema extends ZodTypeAny>(
     req: LlmStructuredRequest<TSchema>,
   ): Promise<z.infer<TSchema>>;
+  runAgentStep(req: LlmAgentStepRequest): Promise<LlmAgentStepResult>;
 }
 
 export type LlmRegistry = {

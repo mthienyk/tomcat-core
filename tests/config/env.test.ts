@@ -52,12 +52,24 @@ describe("loadConfig", () => {
       minimalEnv({
         GOOGLE_GENERATIVE_AI_API_KEY: "google-key",
         LLM_DEFAULT_PROVIDER: "google",
-        LLM_DEFAULT_MODEL: "gemini-3.1-pro",
+        LLM_DEFAULT_MODEL: "gemini-3.1-pro-preview",
       }),
     );
 
     expect(cfg.llm.defaultProvider).toBe("google");
     expect(cfg.llm.googleGenerativeAiApiKey).toBe("google-key");
+  });
+
+  it("supports Google Drive service account file credentials", () => {
+    const cfg = loadConfig(
+      minimalEnv({
+        GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: ".secrets/service-account.json",
+      }),
+    );
+
+    expect(cfg.connectors.driveServiceAccountFile).toBe(
+      ".secrets/service-account.json",
+    );
   });
 
   it("parses CORS allowed origins", () => {

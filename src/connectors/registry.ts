@@ -26,15 +26,21 @@ export type Connectors = {
   investors: InvestorsConnector;
 };
 
-export const buildConnectors = (config: AppConfig): Connectors => ({
-  hubspot: config.connectors.hubspotToken
-    ? createHttpHubspotConnector(config.connectors.hubspotToken)
-    : createUnconfiguredHubspotConnector(),
-  drive: config.connectors.driveServiceAccountJson
-    ? createHttpDriveConnector(config.connectors.driveServiceAccountJson)
-    : createUnconfiguredDriveConnector(),
-  monday: config.connectors.mondayToken
-    ? createHttpMondayConnector(config.connectors.mondayToken)
-    : createUnconfiguredMondayConnector(),
-  investors: createUnconfiguredInvestorsConnector(),
-});
+export const buildConnectors = (config: AppConfig): Connectors => {
+  const driveCredentialsSource =
+    config.connectors.driveServiceAccountJson ??
+    config.connectors.driveServiceAccountFile;
+
+  return {
+    hubspot: config.connectors.hubspotToken
+      ? createHttpHubspotConnector(config.connectors.hubspotToken)
+      : createUnconfiguredHubspotConnector(),
+    drive: driveCredentialsSource
+      ? createHttpDriveConnector(driveCredentialsSource)
+      : createUnconfiguredDriveConnector(),
+    monday: config.connectors.mondayToken
+      ? createHttpMondayConnector(config.connectors.mondayToken)
+      : createUnconfiguredMondayConnector(),
+    investors: createUnconfiguredInvestorsConnector(),
+  };
+};

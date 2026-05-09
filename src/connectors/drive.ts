@@ -10,14 +10,17 @@ export const createUnconfiguredDriveConnector = (): DriveConnector => ({
     Promise.reject(ConnectorNotConfigured("drive", "fetchDocumentText")),
 });
 
-export const createHttpDriveConnector = (_jsonCreds: string): DriveConnector => {
+export const createHttpDriveConnector = (
+  _credentialsSource: string,
+): DriveConnector => {
   const notImplemented = (op: string): never => {
     throw ConnectorFailed(
-      `Drive connector "${op}" not yet implemented. Provide GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON and complete the client.`,
+      `Drive connector "${op}" not yet implemented. Provide Drive service account credentials and complete the client.`,
     );
   };
   return {
-    listBoardPacksForCompany: async () => notImplemented("listBoardPacksForCompany"),
+    listBoardPacksForCompany: async () =>
+      notImplemented("listBoardPacksForCompany"),
     fetchDocumentText: async () => notImplemented("fetchDocumentText"),
   };
 };

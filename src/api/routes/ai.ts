@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { AgentContextSchema } from "../../domain/agent.js";
 import { AuthRequired, BadRequest } from "../../errors/index.js";
 import type { AiService } from "../../services/ai.js";
 import type { AuthMiddleware } from "../middlewareTypes.js";
@@ -8,6 +9,7 @@ const QuerySchema = z.object({
   text: z.string().min(3).max(2000),
   provider: z.enum(["anthropic", "openai", "google"]).optional(),
   model: z.string().min(1).max(120).optional(),
+  context: AgentContextSchema.optional(),
 });
 
 export const registerAiRoutes = (
@@ -28,6 +30,7 @@ export const registerAiRoutes = (
         text: parsed.data.text,
         provider: parsed.data.provider,
         model: parsed.data.model,
+        context: parsed.data.context,
       });
     },
   );
