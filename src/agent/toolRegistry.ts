@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { BadRequest } from "../errors/index.js";
 import type {
   AgentToolCall,
   AgentToolResult,
@@ -63,14 +64,29 @@ const SearchStartupsArgs = z
   .object({
     sector: z.string().min(1).optional(),
     startupName: z.string().min(1).optional(),
+    startupId: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(200).optional(),
   })
   .strict();
 
-const ReadStartupNotesArgs = z
+const StartupSelectorBase = z
   .object({
-    startupId: z.string().min(1),
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
   })
   .strict();
+
+const ReadStartupNotesArgs = StartupSelectorBase.extend({
+  limit: z.number().int().positive().max(200).optional(),
+}).strict();
+
+const ReadStartupDealsArgs = StartupSelectorBase.extend({
+  limit: z.number().int().positive().max(200).optional(),
+}).strict();
+
+const ReadStartupMeetingsArgs = StartupSelectorBase.extend({
+  limit: z.number().int().positive().max(200).optional(),
+}).strict();
 
 const ListPortfolioSignalsArgs = z
   .object({
@@ -85,13 +101,34 @@ const BoardPrepArgs = z
   })
   .strict();
 
+type StartupSelectionArgs = {
+  startupId?: string | undefined;
+  startupName?: string | undefined;
+};
+
+const buildStartupLookup = (args: StartupSelectionArgs): StartupSelectionArgs => {
+  const startup = {
+    ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+    ...(args.startupName !== undefined ? { startupName: args.startupName } : {}),
+  };
+  if (startup.startupId === undefined && startup.startupName === undefined) {
+    throw BadRequest("Either startupId or startupName is required.");
+  }
+  return startup;
+};
+
+const buildListOptions = (
+  limit: number | undefined,
+): { limit: number } | undefined =>
+  limit !== undefined ? { limit } : undefined;
+
 export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "search_startups",
     title: "Search Startups",
     description:
-      "Search startups visible to the caller. Filter by sector or by exact known startupName. "
-      + "Use this for broad discovery; for a single known company prefer the conversation context.",
+      "Search startups visible to the caller. Supports startupId, exact startupName, or sector. "
+      + "Defaults to a bounded result window; use limit for larger structured backend reads.",
     labels: ["startup", "crm", "search", "discovery"],
     sources: ["hubspot"],
     access: "confidential",
@@ -99,24 +136,64 @@ export const AGENT_TOOL_REGISTRY = [
     inputSchema: SearchStartupsArgs,
     execute: async ({ services, caller, args }) =>
       services.startups.findSimilar(caller, {
-        startupId: undefined,
+        startupId: args.startupId,
         startupName: args.startupName,
         sector: args.sector,
-      }),
+      }, buildListOptions(args.limit)),
   }),
   defineAgentTool({
     name: "read_startup_notes",
     title: "Read Startup Notes",
     description:
-      "Return permission-filtered notes for one startup. Requires a concrete startupId from "
-      + "the conversation context or a previous tool result. Never invent ids.",
+      "Return permission-filtered notes for one startup selected by startupId or exact "
+      + "startupName. Output is sorted by recency and supports limit for structured consumers.",
     labels: ["startup", "crm", "notes", "summary"],
     sources: ["hubspot"],
     access: "confidential",
     approvalRequired: false,
     inputSchema: ReadStartupNotesArgs,
     execute: async ({ services, caller, args }) =>
-      services.startups.listAccessibleNotes(caller, args.startupId),
+      services.startups.listAccessibleNotes(
+        caller,
+        buildStartupLookup(args),
+        buildListOptions(args.limit),
+      ),
+  }),
+  defineAgentTool({
+    name: "read_startup_deals",
+    title: "Read Startup Deals",
+    description:
+      "Return permission-filtered HubSpot deals for one startup, sorted by latest update. "
+      + "Use startupId when available to avoid ambiguity; limit controls payload size.",
+    labels: ["startup", "crm", "deals", "pipeline"],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: ReadStartupDealsArgs,
+    execute: async ({ services, caller, args }) =>
+      services.startups.listAccessibleDeals(
+        caller,
+        buildStartupLookup(args),
+        buildListOptions(args.limit),
+      ),
+  }),
+  defineAgentTool({
+    name: "read_startup_meetings",
+    title: "Read Startup Meetings",
+    description:
+      "Return HubSpot meetings for one startup, sorted by most recent occurrence. "
+      + "Useful for timeline reconstruction and pre-call context.",
+    labels: ["startup", "crm", "meetings", "timeline"],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: ReadStartupMeetingsArgs,
+    execute: async ({ services, caller, args }) =>
+      services.startups.listAccessibleMeetings(
+        caller,
+        buildStartupLookup(args),
+        buildListOptions(args.limit),
+      ),
   }),
   defineAgentTool({
     name: "list_portfolio_signals",

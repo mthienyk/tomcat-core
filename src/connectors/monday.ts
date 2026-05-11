@@ -1,24 +1,104 @@
-import { ConnectorFailed, ConnectorNotConfigured } from "../errors/index.js";
+import { ConnectorFailed, ConnectorNotConfigured, CoreError } from "../errors/index.js";
+import type { Event, PortfolioCompany, PortfolioSignal } from "../domain/entities.js";
 import type { MondayConnector } from "./types.js";
 
+const MONDAY_API = "https://api.monday.com/v2";
+
+// Portfolio company boards are identified by emoji in their name (💗 = invested, 👩‍🚀 = supported).
+// Operational boards (Sprints, Tâches, Capacity…) and sub-items boards are excluded.
+const PORTFOLIO_EMOJI_RE = /[\u{1F300}-\u{1F9FF}]/u;
+
+function isPortfolioBoard(name: string): boolean {
+  return !name.startsWith("Sous-éléments") && PORTFOLIO_EMOJI_RE.test(name);
+}
+
+// Strip emoji and trailing whitespace to get the clean company name.
+// This name is used as the cross-connector identifier (matched against HubSpot and Drive).
+function toCompanyName(boardName: string): string {
+  return boardName
+    .replace(/[\u{1F300}-\u{1F9FF}\u{200D}\u{FE0F}]/gu, "")
+    .trim();
+}
+
+type BoardRaw = {
+  id: string;
+  name: string;
+  state: string;
+  updated_at: string | null;
+};
+
 export const createUnconfiguredMondayConnector = (): MondayConnector => ({
-  listPortfolio: async () =>
+  listPortfolio: () =>
     Promise.reject(ConnectorNotConfigured("monday", "listPortfolio")),
-  listSignals: async () =>
+  listSignals: () =>
     Promise.reject(ConnectorNotConfigured("monday", "listSignals")),
-  listUpcomingEvents: async () =>
+  listUpcomingEvents: () =>
     Promise.reject(ConnectorNotConfigured("monday", "listUpcomingEvents")),
 });
 
-export const createHttpMondayConnector = (_token: string): MondayConnector => {
-  const notImplemented = (op: string): never => {
-    throw ConnectorFailed(
-      `Monday connector "${op}" not yet implemented. Provide MONDAY_API_TOKEN and complete the GraphQL client.`,
-    );
+export const createHttpMondayConnector = (token: string): MondayConnector => {
+  const query = async <T>(gql: string): Promise<T> => {
+    const res = await fetch(MONDAY_API, {
+      method: "POST",
+      headers: {
+        Authorization: token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: gql }),
+    });
+    if (!res.ok) throw new Error(`Monday API → HTTP ${res.status}`);
+    const json = await res.json() as { data?: T; errors?: { message: string }[] };
+    if (json.errors?.length) throw new Error(json.errors[0]?.message ?? "Monday API error");
+    if (!json.data) throw new Error("Monday API returned no data");
+    return json.data;
   };
+
+  const fetchAllBoards = async (): Promise<BoardRaw[]> => {
+    const boards: BoardRaw[] = [];
+    let page = 1;
+    while (true) {
+      const data = await query<{ boards: BoardRaw[] }>(
+        `{ boards(limit: 50, page: ${page}, state: active) { id name state updated_at } }`,
+      );
+      const batch = data.boards;
+      boards.push(...batch);
+      if (batch.length < 50) break;
+      page++;
+    }
+    return boards;
+  };
+
   return {
-    listPortfolio: async () => notImplemented("listPortfolio"),
-    listSignals: async () => notImplemented("listSignals"),
-    listUpcomingEvents: async () => notImplemented("listUpcomingEvents"),
+    async listPortfolio(): Promise<PortfolioCompany[]> {
+      try {
+        const boards = await fetchAllBoards();
+        return boards
+          .filter((b) => isPortfolioBoard(b.name))
+          .map((b): PortfolioCompany => ({
+            // Use the clean company name as the cross-system ID so HubSpot and Drive
+            // can resolve it by name without storing HubSpot IDs in Monday.
+            id: toCompanyName(b.name),
+            startupId: toCompanyName(b.name),
+            // Monday boards don't carry investedAt; use last update as an approximation.
+            investedAt: b.updated_at ?? new Date().toISOString(),
+            ownershipPct: undefined,
+            status: "active",
+          }));
+      } catch (err) {
+        if (err instanceof CoreError) throw err;
+        throw ConnectorFailed("monday.listPortfolio failed", { cause: String(err) });
+      }
+    },
+
+    // Monday's current board structure tracks operational support activities, not portfolio
+    // signals (funding rounds, press, hires…). No signal board exists yet.
+    async listSignals(_sinceDays: number): Promise<PortfolioSignal[]> {
+      return [];
+    },
+
+    // No events board exists in the current Monday workspace.
+    async listUpcomingEvents(): Promise<Event[]> {
+      return [];
+    },
   };
 };

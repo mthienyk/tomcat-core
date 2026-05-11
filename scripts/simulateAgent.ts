@@ -37,6 +37,8 @@ const stubServices = (): AgentToolServices => ({
   startups: {
     findSimilar: async () => fakeStartups as never,
     listAccessibleNotes: async () => [] as never,
+    listAccessibleDeals: async () => [] as never,
+    listAccessibleMeetings: async () => [] as never,
   } as AgentToolServices["startups"],
   briefs: {
     boardPrep: async (_caller, portfolioCompanyId) => ({

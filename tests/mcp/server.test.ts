@@ -26,7 +26,12 @@ const fakeServices = (
   signals: unknown,
 ): AgentToolServices =>
   ({
-    startups: { findSimilar: vi.fn(), listAccessibleNotes: vi.fn() },
+    startups: {
+      findSimilar: vi.fn(),
+      listAccessibleNotes: vi.fn(),
+      listAccessibleDeals: vi.fn(),
+      listAccessibleMeetings: vi.fn(),
+    },
     briefs: { boardPrep: vi.fn() },
     society: {
       getInvestorHome: vi.fn(),
@@ -93,7 +98,12 @@ describe("MCP server", () => {
 
   it("returns a structured error when the underlying service throws", async () => {
     const services = {
-      startups: { findSimilar: vi.fn(), listAccessibleNotes: vi.fn() },
+      startups: {
+        findSimilar: vi.fn(),
+        listAccessibleNotes: vi.fn(),
+        listAccessibleDeals: vi.fn(),
+        listAccessibleMeetings: vi.fn(),
+      },
       briefs: { boardPrep: vi.fn() },
       society: {
         getInvestorHome: vi.fn(),

@@ -1,0 +1,51 @@
+---
+description: Rules for implementing connectors (HubSpot, Monday, Drive) — no hallucination, ground everything in real data
+globs: src/connectors/**/*.ts
+alwaysApply: false
+---
+
+# Connector Implementation Rules
+
+## No hallucination — explore first
+
+Before writing any connector code, you MUST:
+1. Read the **existing entities** in `src/domain/entities.ts` to understand the exact shapes expected.
+2. Read the **connector interface** in `src/connectors/types.ts` to know the method signatures.
+3. Read the **service** that calls the connector (`src/services/startups.ts`, `briefs.ts`, `society.ts`) to understand what fields are actually consumed downstream.
+4. If the real API structure is unknown, **call the API** (or read its official docs) to verify field names, pagination format, and auth before mapping.
+
+Never invent field names, property keys, or API response shapes. Map only what the API actually returns.
+
+## Mapping strategy
+
+- Use **only fields that exist in `domain/entities.ts`** as output types.
+- If an API field doesn't map cleanly, document the gap with a comment and use `undefined`.
+- Prefer narrow property lists in API requests — only fetch what the connector interface needs.
+
+## Error handling
+
+```typescript
+// ✅ Wrap every fetch in a try/catch and rethrow as ConnectorFailed
+try {
+  const res = await fetch(...);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return mapToEntity(await res.json());
+} catch (err) {
+  throw ConnectorFailed(`hubspot.listStartups failed`, { cause: String(err) });
+}
+
+// ❌ Never let raw fetch errors bubble up untyped
+```
+
+## Pagination
+
+All list methods must exhaust pagination silently — callers receive the full set.
+Use cursor/`after` (HubSpot), cursor (Drive), cursor (Monday items_page).
+
+## Auth
+
+- HubSpot: `Authorization: Bearer <token>` header, v3 CRM endpoints.
+- Monday: `Authorization: <token>` header, single GraphQL endpoint `https://api.monday.com/v2`.
+- Drive: Service account via `google-auth-library` JWT, scope `https://www.googleapis.com/auth/drive.readonly`.
+
+Never hardcode credentials. Token/credentials come from `AppConfig.connectors` only.

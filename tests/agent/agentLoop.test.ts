@@ -29,6 +29,8 @@ const fakeServices = (): AgentToolServices =>
     startups: {
       findSimilar: vi.fn(),
       listAccessibleNotes: vi.fn(),
+      listAccessibleDeals: vi.fn(),
+      listAccessibleMeetings: vi.fn(),
     },
     briefs: { boardPrep: vi.fn() },
     society: {

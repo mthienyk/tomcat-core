@@ -50,6 +50,10 @@ const EnvSchema = z.object({
   HUBSPOT_API_TOKEN: z.string().optional(),
   GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: z.string().optional(),
   GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: z.string().optional(),
+  // Optional: scope Drive searches to a specific Shared Drive.
+  // Add the service account (tomcat-ai-drive-reader@tomcat-ai-backend.iam.gserviceaccount.com)
+  // as a member of the Shared Drive once — all current and future content becomes accessible.
+  GOOGLE_DRIVE_SHARED_DRIVE_ID: z.string().optional(),
   MONDAY_API_TOKEN: z.string().optional(),
 
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -77,12 +81,13 @@ export type AppConfig = {
     serviceClients: { clientId: string; scopes: string[] }[];
     allowMockAuth: boolean;
   };
-  connectors: {
-    hubspotToken: string | undefined;
-    driveServiceAccountJson: string | undefined;
-    driveServiceAccountFile: string | undefined;
-    mondayToken: string | undefined;
-  };
+    connectors: {
+      hubspotToken: string | undefined;
+      driveServiceAccountJson: string | undefined;
+      driveServiceAccountFile: string | undefined;
+      driveSharedDriveId: string | undefined;
+      mondayToken: string | undefined;
+    };
   llm: {
     anthropicApiKey: string | undefined;
     openaiApiKey: string | undefined;
@@ -119,6 +124,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       hubspotToken: parsed.HUBSPOT_API_TOKEN,
       driveServiceAccountJson: parsed.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
       driveServiceAccountFile: parsed.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE,
+      driveSharedDriveId: parsed.GOOGLE_DRIVE_SHARED_DRIVE_ID,
       mondayToken: parsed.MONDAY_API_TOKEN,
     },
     llm: {

@@ -1,0 +1,16 @@
+---
+description: Anti-hallucination rule — always ground work in existing code, real API responses, and actual entity shapes
+alwaysApply: true
+---
+
+# No Hallucination
+
+Before writing or modifying any code in this repo:
+
+1. **Read the relevant source files first.** Never assume a function signature, type shape, or module export — check it.
+2. **Connector data shapes come from the real API.** If unsure what a third-party API returns, fetch its docs or call it. Do not invent property names.
+3. **Domain entities are the contract.** `src/domain/entities.ts` defines what the rest of the system expects. Map external API responses to those types — never the other way around.
+4. **Services define consumption.** Read the service that calls a connector before implementing it. Only return what is actually used.
+5. **When in doubt, explore.** Use file reads, grep, and API calls to gather evidence. A wrong assumption costs more than the time to verify.
+
+This applies especially to: connector field mapping, HubSpot property names, Monday column IDs, Drive MIME types, and LLM prompt structures.

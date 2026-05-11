@@ -50,9 +50,9 @@ identity with `act_as.investorId`. Calls without delegation are rejected.
 
 ## Connectors
 
-Connector interfaces exist for HubSpot, Drive, Monday and investors. Real HTTP
-clients are not implemented yet. Until they are configured, dependent endpoints
-return `503 CONNECTOR_NOT_CONFIGURED`; they do not return fixtures or empty data.
+Connector interfaces exist for HubSpot, Drive, Monday and investors. HubSpot is
+backed by a real HTTP connector. Drive and Monday still fail closed with
+`503 CONNECTOR_NOT_CONFIGURED` when missing credentials.
 
 Tests create minimal inline data inside `tests/`. That data is only for behavior
 verification and never ships in `src/`.
@@ -91,6 +91,8 @@ Current approved tools:
 
 - `search_startups`
 - `read_startup_notes`
+- `read_startup_deals`
+- `read_startup_meetings`
 - `list_portfolio_signals`
 - `build_board_prep_context`
 

@@ -16,6 +16,8 @@ export type AgentContext = z.infer<typeof AgentContextSchema>;
 export const CoreToolNameSchema = z.enum([
   "search_startups",
   "read_startup_notes",
+  "read_startup_deals",
+  "read_startup_meetings",
   "list_portfolio_signals",
   "build_board_prep_context",
 ]);

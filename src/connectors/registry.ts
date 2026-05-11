@@ -36,7 +36,7 @@ export const buildConnectors = (config: AppConfig): Connectors => {
       ? createHttpHubspotConnector(config.connectors.hubspotToken)
       : createUnconfiguredHubspotConnector(),
     drive: driveCredentialsSource
-      ? createHttpDriveConnector(driveCredentialsSource)
+      ? createHttpDriveConnector(driveCredentialsSource, config.connectors.driveSharedDriveId)
       : createUnconfiguredDriveConnector(),
     monday: config.connectors.mondayToken
       ? createHttpMondayConnector(config.connectors.mondayToken)
