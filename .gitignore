@@ -11,3 +11,12 @@ tomcat-ai-backend-*.json
 coverage/
 .vscode/
 .idea/
+
+# Editor local history (VS Code / Cursor "Local History" extension)
+.history/
+
+# Tooling caches
+.eslintcache
+*.tsbuildinfo
+.turbo/
+.cache/
