@@ -9,6 +9,7 @@ import type {
   Startup,
 } from "../domain/entities.js";
 import type { HubspotConnector } from "./types.js";
+import { createHttpClient } from "./http.js";
 
 const HUBSPOT_BASE = "https://api.hubapi.com";
 
@@ -101,25 +102,24 @@ export const createUnconfiguredHubspotConnector = (): HubspotConnector => ({
 });
 
 export const createHttpHubspotConnector = (token: string): HubspotConnector => {
-  const authHeader = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const client = createHttpClient({
+    connector: "hubspot",
+    baseUrl: HUBSPOT_BASE,
+    defaultHeaders: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    timeoutMs: 15_000,
+    maxAttempts: 3,
+  });
 
-  const get = async (path: string, params: Record<string, string> = {}): Promise<unknown> => {
-    const url = new URL(`${HUBSPOT_BASE}${path}`);
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const res = await fetch(url.toString(), { headers: authHeader });
-    if (!res.ok) throw new Error(`HubSpot GET ${path} → HTTP ${res.status}`);
-    return res.json();
+  const get = (path: string, params: Record<string, string> = {}): Promise<unknown> => {
+    const qs = new URLSearchParams(params).toString();
+    return client.json(qs ? `${path}?${qs}` : path);
   };
 
-  const post = async (path: string, body: unknown): Promise<unknown> => {
-    const res = await fetch(`${HUBSPOT_BASE}${path}`, {
-      method: "POST",
-      headers: authHeader,
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`HubSpot POST ${path} → HTTP ${res.status}`);
-    return res.json();
-  };
+  const post = (path: string, body: unknown): Promise<unknown> =>
+    client.json(path, { method: "POST", body });
 
   const paginateSearch = async <T>(path: string, body: Record<string, unknown>): Promise<T[]> => {
     const results: T[] = [];
@@ -225,7 +225,7 @@ export const createHttpHubspotConnector = (token: string): HubspotConnector => {
               id: c.id,
               name: p.name ?? "",
               sectors: [sector],
-              stage: STAGE_MAP[p.stade_d_intervention ?? ""] ?? "pre_seed",
+              stage: STAGE_MAP[p.stade_d_intervention ?? ""] ?? "unknown",
               country: country || undefined,
               description: description || undefined,
               visibilityTier: mapVisibilityTier(p.lifecyclestage),

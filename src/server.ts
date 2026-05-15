@@ -22,6 +22,7 @@ import { registerMeRoutes } from "./api/routes/me.js";
 import { registerAiRoutes } from "./api/routes/ai.js";
 import { registerSocietyRoutes } from "./api/routes/society.js";
 import { registerInternalRoutes } from "./api/routes/internal.js";
+import { registerConnectorRoutes } from "./api/routes/connectors.js";
 
 export const buildServer = async (
   config: AppConfig,
@@ -94,10 +95,11 @@ export const buildServer = async (
 
   app.setErrorHandler(errorHandler);
 
-  registerHealthRoutes(app);
+  registerHealthRoutes(app, connectors);
   registerMeRoutes(app, auth);
   registerSocietyRoutes(app, auth, society);
   registerInternalRoutes(app, auth, briefs);
+  registerConnectorRoutes(app, auth, startups);
 
   if (llmRegistry.hasAnyProvider()) {
     const ai = buildAiService({

@@ -127,18 +127,21 @@ export const AGENT_TOOL_REGISTRY = [
     name: "search_startups",
     title: "Search Startups",
     description:
-      "Search startups visible to the caller. Supports startupId, exact startupName, or sector. "
-      + "Defaults to a bounded result window; use limit for larger structured backend reads.",
+      "Look up startups visible to the caller. Returns the startup(s) matching the query. "
+      + "Use startupId for exact id lookup, startupName for case-insensitive substring match, "
+      + "or sector to list every startup in that sector. With no argument, returns a bounded "
+      + "list of visible startups. This is the primary tool to confirm a startup exists and "
+      + "obtain its canonical id before reading notes, deals or meetings.",
     labels: ["startup", "crm", "search", "discovery"],
     sources: ["hubspot"],
     access: "confidential",
     approvalRequired: false,
     inputSchema: SearchStartupsArgs,
     execute: async ({ services, caller, args }) =>
-      services.startups.findSimilar(caller, {
-        startupId: args.startupId,
-        startupName: args.startupName,
-        sector: args.sector,
+      services.startups.searchStartups(caller, {
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined ? { startupName: args.startupName } : {}),
+        ...(args.sector !== undefined ? { sector: args.sector } : {}),
       }, buildListOptions(args.limit)),
   }),
   defineAgentTool({

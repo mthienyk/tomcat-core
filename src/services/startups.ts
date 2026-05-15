@@ -83,6 +83,33 @@ export const buildStartupsService = (deps: { connectors: Connectors }) => {
   };
 
   return {
+    searchStartups: async (
+      caller: Identity,
+      query: { startupId?: string; startupName?: string; sector?: string },
+      options?: ListOptions,
+    ): Promise<Startup[]> => {
+      const visible = await listVisibleStartups(caller);
+      const limit = clampLimit(options?.limit, DEFAULT_ACTIVITY_LIMIT);
+
+      if (query.startupId) {
+        const found = visible.find((s) => s.id === query.startupId);
+        return found ? [found] : [];
+      }
+      if (query.startupName) {
+        const needle = normalize(query.startupName);
+        return visible
+          .filter((s) => normalize(s.name).includes(needle))
+          .slice(0, limit);
+      }
+      if (query.sector) {
+        const sector = query.sector.toLowerCase();
+        return visible
+          .filter((s) => s.sectors.some((sec) => sec.toLowerCase() === sector))
+          .slice(0, limit);
+      }
+      return visible.slice(0, limit);
+    },
+
     findSimilar: async (
       caller: Identity,
       seed: StartupSeed,

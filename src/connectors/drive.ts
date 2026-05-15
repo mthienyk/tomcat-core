@@ -2,12 +2,19 @@ import { readFileSync } from "fs";
 import { GoogleAuth } from "google-auth-library";
 import { ConnectorFailed, ConnectorNotConfigured, CoreError } from "../errors/index.js";
 import type { DriveConnector } from "./types.js";
+import { createHttpClient, type HttpClient } from "./http.js";
 
 const DRIVE_BASE = "https://www.googleapis.com/drive/v3";
 
 const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
 const GOOGLE_SLIDES_MIME = "application/vnd.google-apps.presentation";
-const EXPORTABLE_MIMES = new Set([GOOGLE_DOC_MIME, GOOGLE_SLIDES_MIME]);
+const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+
+const TEXT_EXPORT_MIMES: Partial<Record<string, string>> = {
+  [GOOGLE_DOC_MIME]: "text/plain",
+  [GOOGLE_SLIDES_MIME]: "text/plain",
+  [GOOGLE_SHEET_MIME]: "text/csv",
+};
 
 type DriveFile = {
   id: string;
@@ -15,6 +22,13 @@ type DriveFile = {
   mimeType: string;
   createdTime: string;
 };
+
+type DriveListResponse = {
+  files?: DriveFile[];
+  nextPageToken?: string;
+};
+
+const escapeQuery = (raw: string): string => raw.replace(/'/g, "\\'");
 
 export const createUnconfiguredDriveConnector = (): DriveConnector => ({
   listBoardPacksForCompany: () =>
@@ -38,54 +52,63 @@ export const createHttpDriveConnector = (
 
   const getToken = async (): Promise<string> => {
     const token = await auth.getAccessToken();
-    if (!token) throw ConnectorFailed("Drive: failed to obtain access token");
+    if (!token) throw ConnectorFailed("drive: failed to obtain access token");
     return token;
   };
 
-  const driveGet = async (path: string, params: Record<string, string> = {}): Promise<unknown> => {
+  const buildClient = async (): Promise<HttpClient> => {
     const token = await getToken();
-    const url = new URL(`${DRIVE_BASE}${path}`);
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
+    return createHttpClient({
+      connector: "drive",
+      baseUrl: DRIVE_BASE,
+      defaultHeaders: { Authorization: `Bearer ${token}` },
+      timeoutMs: 20_000,
+      maxAttempts: 3,
     });
-    if (!res.ok) throw new Error(`Drive GET ${path} → HTTP ${res.status}`);
-    return res.json();
   };
 
-  const driveGetRaw = async (url: string): Promise<string> => {
-    const token = await getToken();
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(`Drive fetch ${url} → HTTP ${res.status}`);
-    return res.text();
+  const listFiles = async (
+    client: HttpClient,
+    query: string,
+  ): Promise<DriveFile[]> => {
+    const out: DriveFile[] = [];
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({
+        q: query,
+        pageSize: "100",
+        fields: "nextPageToken, files(id,name,mimeType,createdTime)",
+        includeItemsFromAllDrives: "true",
+        supportsAllDrives: "true",
+        orderBy: "createdTime desc",
+      });
+      if (sharedDriveId) {
+        params.set("corpora", "drive");
+        params.set("driveId", sharedDriveId);
+      }
+      if (pageToken) params.set("pageToken", pageToken);
+
+      const data = await client.json<DriveListResponse>(
+        `/files?${params.toString()}`,
+      );
+      out.push(...(data.files ?? []));
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return out;
   };
 
   return {
     async listBoardPacksForCompany(portfolioCompanyId) {
       try {
-        // portfolioCompanyId is the normalized company name (e.g. "Aistos"), set by Monday connector.
-        const escapedName = portfolioCompanyId.replace(/'/g, "\\'");
-        const driveClause = sharedDriveId ? ` and '${sharedDriveId}' in parents` : "";
-        const q = `name contains '${escapedName}' and trashed = false${driveClause}`;
+        const client = await buildClient();
+        // Search across the entire shared drive (any folder), not only its root.
+        // Drive's `name contains` is a substring match without word boundaries,
+        // so we keep the company name as-is and rely on the indexer.
+        const escapedName = escapeQuery(portfolioCompanyId);
+        const query = `name contains '${escapedName}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
 
-        const params: Record<string, string> = {
-          q,
-          pageSize: "100",
-          fields: "files(id,name,mimeType,createdTime)",
-          includeItemsFromAllDrives: "true",
-          supportsAllDrives: "true",
-          orderBy: "createdTime desc",
-        };
-        if (sharedDriveId) {
-          params.driveId = sharedDriveId;
-          params.corpora = "drive";
-        }
-
-        const data = await driveGet("/files", params) as { files?: DriveFile[] };
-
-        return (data.files ?? []).map((f) => ({
+        const files = await listFiles(client, query);
+        return files.map((f) => ({
           id: f.id,
           title: f.name,
           driveFileId: f.id,
@@ -93,29 +116,34 @@ export const createHttpDriveConnector = (
         }));
       } catch (err) {
         if (err instanceof CoreError) throw err;
-        throw ConnectorFailed("drive.listBoardPacksForCompany failed", { cause: String(err) });
+        throw ConnectorFailed("drive.listBoardPacksForCompany failed", {
+          cause: String(err),
+        });
       }
     },
 
     async fetchDocumentText(driveFileId) {
       try {
-        const meta = await driveGet(`/files/${driveFileId}`, {
-          fields: "id,name,mimeType",
-          supportsAllDrives: "true",
-        }) as { id: string; name: string; mimeType: string };
+        const client = await buildClient();
+        const meta = await client.json<{ id: string; name: string; mimeType: string }>(
+          `/files/${driveFileId}?fields=id,name,mimeType&supportsAllDrives=true`,
+        );
 
-        if (EXPORTABLE_MIMES.has(meta.mimeType)) {
-          const exportUrl =
-            `${DRIVE_BASE}/files/${driveFileId}/export?mimeType=text%2Fplain&supportsAllDrives=true`;
-          return driveGetRaw(exportUrl);
+        const exportMime = TEXT_EXPORT_MIMES[meta.mimeType];
+        if (exportMime) {
+          const exportRes = await client.request(
+            `/files/${driveFileId}/export?mimeType=${encodeURIComponent(exportMime)}&supportsAllDrives=true`,
+          );
+          return exportRes.text();
         }
 
-        // PDFs and other binary formats cannot be exported as plain text without a
-        // dedicated extraction library. Return metadata so callers know the file exists.
+        // PDFs and other binary formats need a dedicated extraction pipeline.
         return `[${meta.name} — binary format (${meta.mimeType}), text extraction not supported]`;
       } catch (err) {
         if (err instanceof CoreError) throw err;
-        throw ConnectorFailed("drive.fetchDocumentText failed", { cause: String(err) });
+        throw ConnectorFailed("drive.fetchDocumentText failed", {
+          cause: String(err),
+        });
       }
     },
   };

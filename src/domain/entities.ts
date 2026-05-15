@@ -10,7 +10,13 @@ export type Sector =
   | "health"
   | "other";
 
-export type Stage = "pre_seed" | "seed" | "series_a" | "series_b" | "series_c+";
+export type Stage =
+  | "unknown"
+  | "pre_seed"
+  | "seed"
+  | "series_a"
+  | "series_b"
+  | "series_c+";
 
 export type Startup = {
   id: string;

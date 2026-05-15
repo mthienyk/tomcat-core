@@ -121,7 +121,7 @@ describe("createHttpHubspotConnector", () => {
       const hs = createHttpHubspotConnector("fake-token");
       const [startup] = await hs.listStartups();
       expect(startup.sectors).toEqual(["other"]);
-      expect(startup.stage).toBe("pre_seed");
+      expect(startup.stage).toBe("unknown");
       expect(startup.visibilityTier).toBe("bronze");
     });
 

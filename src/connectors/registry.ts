@@ -27,9 +27,11 @@ export type Connectors = {
 };
 
 export const buildConnectors = (config: AppConfig): Connectors => {
+  const driveJson = config.connectors.driveServiceAccountJson?.trim();
+  const driveFile = config.connectors.driveServiceAccountFile?.trim();
   const driveCredentialsSource =
-    config.connectors.driveServiceAccountJson ??
-    config.connectors.driveServiceAccountFile;
+    (driveJson && driveJson.length > 0 ? driveJson : undefined) ??
+    (driveFile && driveFile.length > 0 ? driveFile : undefined);
 
   return {
     hubspot: config.connectors.hubspotToken

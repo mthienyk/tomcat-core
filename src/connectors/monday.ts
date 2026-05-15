@@ -1,6 +1,7 @@
 import { ConnectorFailed, ConnectorNotConfigured, CoreError } from "../errors/index.js";
 import type { Event, PortfolioCompany, PortfolioSignal } from "../domain/entities.js";
 import type { MondayConnector } from "./types.js";
+import { createHttpClient } from "./http.js";
 
 const MONDAY_API = "https://api.monday.com/v2";
 
@@ -37,19 +38,29 @@ export const createUnconfiguredMondayConnector = (): MondayConnector => ({
 });
 
 export const createHttpMondayConnector = (token: string): MondayConnector => {
+  const client = createHttpClient({
+    connector: "monday",
+    baseUrl: MONDAY_API,
+    defaultHeaders: {
+      Authorization: token,
+      "Content-Type": "application/json",
+    },
+    timeoutMs: 20_000,
+    maxAttempts: 3,
+  });
+
   const query = async <T>(gql: string): Promise<T> => {
-    const res = await fetch(MONDAY_API, {
-      method: "POST",
-      headers: {
-        Authorization: token,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query: gql }),
-    });
-    if (!res.ok) throw new Error(`Monday API → HTTP ${res.status}`);
-    const json = await res.json() as { data?: T; errors?: { message: string }[] };
-    if (json.errors?.length) throw new Error(json.errors[0]?.message ?? "Monday API error");
-    if (!json.data) throw new Error("Monday API returned no data");
+    const json = await client.json<{ data?: T; errors?: { message: string }[] }>(
+      "",
+      { method: "POST", body: { query: gql } },
+    );
+    if (json.errors?.length) {
+      throw ConnectorFailed(
+        json.errors[0]?.message ?? "Monday API returned errors",
+        { errors: json.errors },
+      );
+    }
+    if (!json.data) throw ConnectorFailed("Monday API returned no data");
     return json.data;
   };
 
