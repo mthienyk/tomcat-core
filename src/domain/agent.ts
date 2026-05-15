@@ -20,6 +20,12 @@ export const CoreToolNameSchema = z.enum([
   "read_startup_meetings",
   "list_portfolio_signals",
   "build_board_prep_context",
+  "resolve_entity",
+  "list_company_crm_activity",
+  "list_company_documents",
+  "read_company_document_excerpt",
+  "list_portfolio_context",
+  "build_company_360_context",
 ]);
 
 export type CoreToolName = z.infer<typeof CoreToolNameSchema>;

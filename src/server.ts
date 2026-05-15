@@ -15,6 +15,7 @@ import { buildLlmRegistry } from "./llm/registry.js";
 import { buildSocietyService } from "./services/society.js";
 import { buildStartupsService } from "./services/startups.js";
 import { buildBriefsService } from "./services/briefs.js";
+import { buildCompanyContextService } from "./services/companyContext.js";
 import { buildAiService } from "./services/ai.js";
 import { errorHandler } from "./api/errorHandler.js";
 import { registerHealthRoutes } from "./api/routes/health.js";
@@ -90,6 +91,11 @@ export const buildServer = async (
   const society = buildSocietyService({ connectors });
   const startups = buildStartupsService({ connectors });
   const briefs = buildBriefsService({ connectors });
+  const companyContext = buildCompanyContextService({
+    connectors,
+    startups,
+    society,
+  });
 
   const llmRegistry = buildLlmRegistry(config);
 
@@ -107,6 +113,7 @@ export const buildServer = async (
       startups,
       briefs,
       society,
+      companyContext,
       auditor,
     });
     registerAiRoutes(app, auth, ai);

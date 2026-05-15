@@ -79,6 +79,12 @@ Execution:
 
 Return `structuredContent` whenever possible. Also include serialized JSON in `content[0].text` for compatibility.
 
+### `tomcat-core` MCP notes
+
+- Tool names are snake_case (`CoreToolName` in `src/domain/agent.ts`).
+- The stdio server emits `structuredContent` for successes and structured failures. It does not advertise `outputSchema` yet because `@modelcontextprotocol/sdk` output validation rejects the permissive Zod shapes we need for heterogeneous tool payloads.
+- Errors surface as `{ "error": { "code", "message", "details", "retryable", "nextAction" } }` when tool execution throws; `isError` remains `true` per the MCP spec.
+
 ## OpenAI Mapping
 
 Use Responses API tools. For Tomcat-managed functions, expose each tool as a function. For Tomcat MCP, OpenAI can also call a remote MCP server directly when appropriate.

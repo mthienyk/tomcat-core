@@ -6,6 +6,7 @@ import type { LlmProviderName, LlmRegistry, LlmStopReason } from "../llm/types.j
 import type { Auditor } from "../audit/audit.js";
 import type { StartupsService } from "./startups.js";
 import type { BriefsService } from "./briefs.js";
+import type { CompanyContextService } from "./companyContext.js";
 import type { SocietyService } from "./society.js";
 
 export type AiQueryResult = {
@@ -24,6 +25,7 @@ export type AiServiceDeps = {
   startups: StartupsService;
   briefs: BriefsService;
   society: SocietyService;
+  companyContext: CompanyContextService;
   auditor: Auditor;
 };
 
@@ -52,6 +54,7 @@ export const buildAiService = (deps: AiServiceDeps) => ({
         startups: deps.startups,
         briefs: deps.briefs,
         society: deps.society,
+        companyContext: deps.companyContext,
       },
       caller,
       auditor: deps.auditor,

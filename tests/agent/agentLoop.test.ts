@@ -28,6 +28,7 @@ const fakeServices = (): AgentToolServices =>
   ({
     startups: {
       findSimilar: vi.fn(),
+      searchStartups: vi.fn().mockResolvedValue([]),
       listAccessibleNotes: vi.fn(),
       listAccessibleDeals: vi.fn(),
       listAccessibleMeetings: vi.fn(),
@@ -46,6 +47,15 @@ const fakeServices = (): AgentToolServices =>
           visibilityTier: "internal_only",
         },
       ]),
+      ensurePortfolioCompanyInScope: vi.fn().mockResolvedValue(undefined),
+    },
+    companyContext: {
+      resolveEntity: vi.fn(),
+      listCompanyCrmActivity: vi.fn(),
+      listCompanyDocuments: vi.fn(),
+      readCompanyDocumentExcerpt: vi.fn(),
+      listPortfolioContext: vi.fn(),
+      buildCompany360Context: vi.fn(),
     },
   }) as unknown as AgentToolServices;
 

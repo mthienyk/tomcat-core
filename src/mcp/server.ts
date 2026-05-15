@@ -8,6 +8,7 @@ import {
   type AgentToolServices,
 } from "../agent/toolRegistry.js";
 import type { CoreToolName } from "../domain/agent.js";
+import { CoreError } from "../errors/index.js";
 
 export type McpAgentServerOptions = {
   name?: string;
@@ -24,6 +25,8 @@ const inputShape = (schema: z.ZodTypeAny): ZodRawShape => {
   );
 };
 
+// structuredContent is emitted without outputSchema: @modelcontextprotocol/sdk's output validation
+// rejects several permissive Zod exports; clients still receive JSON in text + structured payloads.
 const formatOutput = (output: unknown): string => {
   if (typeof output === "string") return output;
   try {
@@ -31,6 +34,61 @@ const formatOutput = (output: unknown): string => {
   } catch {
     return String(output);
   }
+};
+
+const toStructuredPayload = (payload: unknown): Record<string, unknown> => {
+  if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>;
+  }
+  return { value: payload as string | number | boolean | null };
+};
+
+const nextActionFromCoreError = (error: CoreError): string => {
+  if (error.code === "BAD_REQUEST") return "fix_arguments_or_clarify";
+  if (error.code === "FORBIDDEN") return "adjust_identity_scope";
+  if (error.code === "NOT_FOUND") return "refresh_ids_via_resolve_entity";
+  if (error.code === "CONNECTOR_FAILED") return "retry_or_check_connector_health";
+  if (error.code === "CONNECTOR_NOT_CONFIGURED") {
+    return "configure_connector_credentials";
+  }
+  return "inspect_audit_logs_or_support";
+};
+
+const formatToolFailure = (error: unknown): Record<string, unknown> => {
+  if (error instanceof CoreError) {
+    const retryable = error.code === "CONNECTOR_FAILED";
+    return {
+      error: {
+        code: error.code,
+        message: error.message,
+        details: error.details ?? null,
+        status: error.status,
+        retryable,
+        nextAction: nextActionFromCoreError(error),
+      },
+    };
+  }
+  if (error instanceof z.ZodError) {
+    return {
+      error: {
+        code: "BAD_REQUEST",
+        message: "Tool argument validation failed.",
+        details: { issues: error.flatten() },
+        retryable: false,
+        nextAction: "fix_arguments",
+      },
+    };
+  }
+  const message = error instanceof Error ? error.message : "unknown_error";
+  return {
+    error: {
+      code: "INTERNAL",
+      message,
+      details: null,
+      retryable: false,
+      nextAction: "inspect_audit_logs_or_support",
+    },
+  };
 };
 
 export const buildMcpAgentServer = (
@@ -64,16 +122,24 @@ export const buildMcpAgentServer = (
             reason: "approval_required",
             meta: { toolName: tool.name, access: tool.access },
           });
+          const structuredContent = formatToolFailure(
+            new CoreError(
+              "FORBIDDEN",
+              `Tool "${tool.name}" requires human approval (access: ${tool.access}).`,
+              403,
+              { approvalRequired: true, access: tool.access },
+            ),
+          );
           return {
             isError: true,
             content: [
               {
                 type: "text",
                 text:
-                  `Tool "${tool.name}" requires human approval `
-                  + `(access: ${tool.access}). Refused via MCP.`,
+                  JSON.stringify(structuredContent, null, 2),
               },
             ],
+            structuredContent,
           };
         }
 
@@ -97,24 +163,39 @@ export const buildMcpAgentServer = (
               durationMs: Date.now() - startedAt,
             },
           });
+          const structuredContent = toStructuredPayload(result.output);
           return {
-            content: [{ type: "text", text: formatOutput(result.output) }],
+            content: [{ type: "text", text: formatOutput(structuredContent) }],
+            structuredContent,
           };
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "unknown_error";
+          const structuredContent = formatToolFailure(error);
           options.auditor.record(options.caller, {
             action: "mcp.tool_call",
             resource: `mcp://${tool.name}`,
             outcome: "error",
             reason: "tool_execution_failed",
-            meta: { toolName: tool.name, errorMessage: message },
+            meta: {
+              toolName: tool.name,
+              errorMessage:
+                typeof structuredContent["error"] === "object" &&
+                  structuredContent["error"] !== null &&
+                  "message" in structuredContent["error"]
+                  ? String(
+                    (structuredContent["error"] as { message: unknown }).message,
+                  )
+                  : JSON.stringify(structuredContent),
+            },
           });
           return {
             isError: true,
             content: [
-              { type: "text", text: `Tool execution failed: ${message}` },
+              {
+                type: "text",
+                text: JSON.stringify(structuredContent, null, 2),
+              },
             ],
+            structuredContent,
           };
         }
       },

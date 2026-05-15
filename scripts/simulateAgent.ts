@@ -36,6 +36,7 @@ const fakeStartups = [
 const stubServices = (): AgentToolServices => ({
   startups: {
     findSimilar: async () => fakeStartups as never,
+    searchStartups: async () => fakeStartups as never,
     listAccessibleNotes: async () => [] as never,
     listAccessibleDeals: async () => [] as never,
     listAccessibleMeetings: async () => [] as never,
@@ -64,7 +65,57 @@ const stubServices = (): AgentToolServices => ({
         visibilityTier: "internal_only",
       },
     ],
+    ensurePortfolioCompanyInScope: async () => undefined,
   } as AgentToolServices["society"],
+  companyContext: {
+    resolveEntity: async () => ({
+      query: "",
+      candidates: [],
+      needsClarification: false,
+      warnings: [],
+    }),
+    listCompanyCrmActivity: async () => ({
+      selector: {},
+      notes: [],
+      deals: [],
+      meetings: [],
+      warnings: [],
+    }),
+    listCompanyDocuments: async () => ({
+      portfolioCompanyId: "",
+      documents: [],
+      warnings: [],
+    }),
+    readCompanyDocumentExcerpt: async () => ({
+      portfolioCompanyId: "",
+      driveFileId: "",
+      title: "",
+      excerpt: "",
+      truncated: false,
+      warnings: [],
+    }),
+    listPortfolioContext: async () => ({
+      portfolioCompanyId: "",
+      portfolioRow: undefined,
+      signals: [],
+      upcomingEvents: [],
+      warnings: [],
+    }),
+    buildCompany360Context: async () => ({
+      portfolioCompanyId: undefined,
+      startupId: undefined,
+      startupProfile: undefined,
+      sectionsIncluded: [],
+      startup: undefined,
+      notes: [],
+      deals: [],
+      meetings: [],
+      documents: [],
+      signals: [],
+      upcomingEvents: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["companyContext"],
 });
 
 type Scenario = {

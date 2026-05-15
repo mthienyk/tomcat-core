@@ -16,6 +16,17 @@ This catalog is the canonical design layer for Tomcat Core tools. It is intentio
 - `confidential`: deal, portfolio, investor or board context.
 - `restricted`: legal, payroll, bank, shareholder, tax or outbound send workflows.
 
+## Tomcat Core MCP (implemented)
+
+Tomcat Core registers the same tool names for MCP and the internal LLM agents via `AGENT_TOOL_REGISTRY` (`src/agent/toolRegistry.ts`). Current `CoreToolName` values:
+
+- Discovery and CRM: `search_startups`, `read_startup_notes`, `read_startup_deals`, `read_startup_meetings`, `resolve_entity`, `list_company_crm_activity`
+- Portfolio and Monday: `list_portfolio_signals`, `list_portfolio_context`
+- Drive: `list_company_documents`, `read_company_document_excerpt`
+- Assemblers: `build_board_prep_context`, `build_company_360_context`
+
+The sections below remain the forward-looking catalog (dot-notation names); map them conceptually to these implementations when benchmarking routing.
+
 ## V1 Read-Only Core
 
 ### `entity.resolve_company`

@@ -134,6 +134,16 @@ export const buildSocietyService = (deps: { connectors: Connectors }) => {
         .filter((s) => s.portfolioCompanyId === portfolioCompanyId)
         .filter((s) => canSeeSignalForInvestor(caller, s, portfolioSet));
     },
+
+    ensurePortfolioCompanyInScope: async (
+      caller: Identity,
+      portfolioCompanyId: string,
+    ): Promise<void> => {
+      const portfolioSet = await portfolioScopeForCaller(caller, portfolioCompanyId);
+      if (!portfolioSet.has(portfolioCompanyId)) {
+        throw Forbidden("Portfolio company is outside caller scope");
+      }
+    },
   };
 };
 

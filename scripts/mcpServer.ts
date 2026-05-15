@@ -6,6 +6,7 @@ import { buildConnectors } from "../src/connectors/registry.js";
 import { buildSocietyService } from "../src/services/society.js";
 import { buildStartupsService } from "../src/services/startups.js";
 import { buildBriefsService } from "../src/services/briefs.js";
+import { buildCompanyContextService } from "../src/services/companyContext.js";
 import { createAuditor } from "../src/audit/audit.js";
 import { buildMcpAgentServer } from "../src/mcp/server.js";
 import type { Identity } from "../src/domain/identity.js";
@@ -29,10 +30,19 @@ const localOperator: Identity = {
 const main = async (): Promise<void> => {
   const config = loadConfig();
   const connectors = buildConnectors(config);
+  const startups = buildStartupsService({ connectors });
+  const society = buildSocietyService({ connectors });
+  const briefs = buildBriefsService({ connectors });
+  const companyContext = buildCompanyContextService({
+    connectors,
+    startups,
+    society,
+  });
   const services = {
-    startups: buildStartupsService({ connectors }),
-    briefs: buildBriefsService({ connectors }),
-    society: buildSocietyService({ connectors }),
+    startups,
+    briefs,
+    society,
+    companyContext,
   };
   const auditor = createAuditor(logger);
 
