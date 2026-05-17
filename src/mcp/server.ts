@@ -106,12 +106,18 @@ export const buildMcpAgentServer = (
       + `Access: ${tool.access} | `
       + `Approval required: ${tool.approvalRequired ? "yes" : "no"}`;
 
+    // Approval-required tools use a permissive schema so the SDK always calls
+    // our handler — which returns FORBIDDEN before any argument inspection.
+    const registeredSchema = tool.approvalRequired
+      ? ({} as ZodRawShape)
+      : inputShape(tool.inputSchema);
+
     server.registerTool(
       tool.name,
       {
         title: tool.title,
         description,
-        inputSchema: inputShape(tool.inputSchema),
+        inputSchema: registeredSchema,
       },
       async (args) => {
         if (tool.approvalRequired) {

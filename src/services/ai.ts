@@ -8,6 +8,7 @@ import type { StartupsService } from "./startups.js";
 import type { BriefsService } from "./briefs.js";
 import type { CompanyContextService } from "./companyContext.js";
 import type { SocietyService } from "./society.js";
+import type { SignalHubService } from "./signalHub/index.js";
 
 export type AiQueryResult = {
   provider: LlmProviderName;
@@ -26,6 +27,7 @@ export type AiServiceDeps = {
   briefs: BriefsService;
   society: SocietyService;
   companyContext: CompanyContextService;
+  signalHub: SignalHubService;
   auditor: Auditor;
 };
 
@@ -55,6 +57,7 @@ export const buildAiService = (deps: AiServiceDeps) => ({
         briefs: deps.briefs,
         society: deps.society,
         companyContext: deps.companyContext,
+        signalHub: deps.signalHub,
       },
       caller,
       auditor: deps.auditor,

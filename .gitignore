@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+# Signal Hub local SQLite store and WAL files
+.data/
 .env.local
 .env.*.local
 .secrets/

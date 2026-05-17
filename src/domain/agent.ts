@@ -26,6 +26,16 @@ export const CoreToolNameSchema = z.enum([
   "read_company_document_excerpt",
   "list_portfolio_context",
   "build_company_360_context",
+  // Signal Hub
+  "signal_hub_list_watched",
+  "signal_hub_add_watched",
+  "signal_hub_set_priority",
+  "signal_hub_recent_signals",
+  "signal_hub_search_signals",
+  "signal_hub_resolve_entity",
+  "signal_hub_list_accounts",
+  "signal_hub_request_refresh",
+  "signal_hub_freeze_account",
 ]);
 
 export type CoreToolName = z.infer<typeof CoreToolNameSchema>;

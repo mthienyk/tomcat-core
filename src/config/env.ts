@@ -56,6 +56,16 @@ const EnvSchema = z.object({
   GOOGLE_DRIVE_SHARED_DRIVE_ID: z.string().optional(),
   MONDAY_API_TOKEN: z.string().optional(),
 
+  // Signal Hub
+  SERPER_API_KEY: z.string().optional(),
+  UNIPILE_DSN: z.string().optional(),
+  UNIPILE_API_KEY: z.string().optional(),
+  UNIPILE_WEBHOOK_SECRET: z.string().optional(),
+  // Path for SQLite store. Defaults to .data/signal-hub.db relative to cwd.
+  SIGNAL_STORE_PATH: z.string().optional(),
+  // Daily call quota per Unipile account (override default of 60).
+  UNIPILE_DAILY_QUOTA: z.coerce.number().int().positive().max(100).default(60),
+
   ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
@@ -87,6 +97,14 @@ export type AppConfig = {
       driveServiceAccountFile: string | undefined;
       driveSharedDriveId: string | undefined;
       mondayToken: string | undefined;
+    };
+    signalHub: {
+      serperApiKey: string | undefined;
+      unipileDsn: string | undefined;
+      unipileApiKey: string | undefined;
+      unipileWebhookSecret: string | undefined;
+      storePath: string;
+      unipileDailyQuota: number;
     };
   llm: {
     anthropicApiKey: string | undefined;
@@ -126,6 +144,14 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       driveServiceAccountFile: parsed.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE,
       driveSharedDriveId: parsed.GOOGLE_DRIVE_SHARED_DRIVE_ID,
       mondayToken: parsed.MONDAY_API_TOKEN,
+    },
+    signalHub: {
+      serperApiKey: parsed.SERPER_API_KEY,
+      unipileDsn: parsed.UNIPILE_DSN,
+      unipileApiKey: parsed.UNIPILE_API_KEY,
+      unipileWebhookSecret: parsed.UNIPILE_WEBHOOK_SECRET,
+      storePath: parsed.SIGNAL_STORE_PATH ?? ".data/signal-hub.db",
+      unipileDailyQuota: parsed.UNIPILE_DAILY_QUOTA,
     },
     llm: {
       anthropicApiKey: parsed.ANTHROPIC_API_KEY,

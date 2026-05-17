@@ -12,6 +12,7 @@ import type { BriefsService } from "../services/briefs.js";
 import type { CompanyContextService } from "../services/companyContext.js";
 import type { SocietyService } from "../services/society.js";
 import type { StartupsService } from "../services/startups.js";
+import type { SignalHubService } from "../services/signalHub/index.js";
 
 export type AgentToolAccess = "internal" | "confidential" | "restricted";
 
@@ -20,6 +21,7 @@ export type AgentToolServices = {
   briefs: BriefsService;
   society: SocietyService;
   companyContext: CompanyContextService;
+  signalHub: SignalHubService;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -427,6 +429,233 @@ export const AGENT_TOOL_REGISTRY = [
         );
       }
       return services.companyContext.buildCompany360Context(caller, args);
+    },
+  }),
+  // --- Signal Hub tools ---
+
+  defineAgentTool({
+    name: "signal_hub_list_watched",
+    title: "Signal Hub: List Watched Entities",
+    description:
+      "List all entities (founders, companies) currently on the Signal Hub watchlist. "
+      + "Optional priority filter: 'hot', 'warm', or 'cold'. "
+      + "Returns id, displayName, linkedinUrl, linkedinIdentifier, priority, startupId.",
+    labels: ["signal_hub", "watchlist", "linkedin"],
+    sources: ["signal_hub"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z.object({
+      priority: z.enum(["hot", "warm", "cold"]).optional(),
+    }).strict(),
+    execute: async ({ services, caller, args }) =>
+      services.signalHub.listWatched(caller, args.priority),
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_add_watched",
+    title: "Signal Hub: Add Watched Entity",
+    description:
+      "Add a founder or company to the Signal Hub watchlist. "
+      + "Provide displayName and optionally linkedinUrl or linkedinIdentifier. "
+      + "Link to an existing HubSpot startup via startupId. "
+      + "Requires internal_team role.",
+    labels: ["signal_hub", "watchlist", "linkedin"],
+    sources: ["signal_hub"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z.object({
+      displayName: z.string().min(1),
+      linkedinUrl: z.string().url().optional(),
+      linkedinIdentifier: z.string().min(1).optional(),
+      startupId: z.string().min(1).optional(),
+      kind: z.enum(["person", "company"]).optional(),
+      priority: z.enum(["hot", "warm", "cold"]).optional(),
+    }).strict(),
+    execute: async ({ services, caller, args }) =>
+      services.signalHub.addWatched(caller, {
+        displayName: args.displayName,
+        ...(args.linkedinUrl !== undefined ? { linkedinUrl: args.linkedinUrl } : {}),
+        ...(args.linkedinIdentifier !== undefined ? { linkedinIdentifier: args.linkedinIdentifier } : {}),
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.kind !== undefined ? { kind: args.kind } : {}),
+        ...(args.priority !== undefined ? { priority: args.priority } : {}),
+      }),
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_set_priority",
+    title: "Signal Hub: Set Entity Priority",
+    description:
+      "Update the polling priority of a watched entity. "
+      + "hot = polled first, warm = default, cold = rarely polled. "
+      + "Requires internal_team role.",
+    labels: ["signal_hub", "watchlist"],
+    sources: ["signal_hub"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z.object({
+      watchedId: z.string().min(1),
+      priority: z.enum(["hot", "warm", "cold"]),
+    }).strict(),
+    execute: async ({ services, caller, args }) => {
+      await services.signalHub.setPriority(caller, args.watchedId, args.priority);
+      return { updated: true };
+    },
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_recent_signals",
+    title: "Signal Hub: Recent Signals",
+    description:
+      "Return recent LinkedIn signals for a watched entity or HubSpot startup. "
+      + "Provide watchedId or startupId. Optionally filter by source ('serper_public' or 'unipile'), "
+      + "signalType ('post', 'reaction', 'comment'), sinceIso (ISO-8601 datetime), "
+      + "textContains (substring), and limit (max 200, default 50).",
+    labels: ["signal_hub", "linkedin", "signals"],
+    sources: ["signal_hub"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z.object({
+      watchedId: z.string().min(1).optional(),
+      startupId: z.string().min(1).optional(),
+      source: z.enum(["serper_public", "unipile"]).optional(),
+      signalType: z.enum(["post", "reaction", "comment", "profile_change"]).optional(),
+      sinceIso: z.string().min(1).optional(),
+      textContains: z.string().min(1).optional(),
+      limit: z.number().int().positive().max(200).optional(),
+    }).strict(),
+    execute: async ({ services, caller, args }) => {
+      if (!args.watchedId && !args.startupId) {
+        throw BadRequest("Provide watchedId or startupId");
+      }
+      const filter: Parameters<typeof services.signalHub.listEvents>[1] = {
+        limit: args.limit ?? 50,
+      };
+      if (args.watchedId) filter.watchedId = args.watchedId;
+      if (args.startupId) filter.startupId = args.startupId;
+      if (args.source) filter.source = args.source;
+      if (args.signalType) filter.signalType = args.signalType;
+      if (args.sinceIso) filter.sinceIso = args.sinceIso;
+      if (args.textContains) filter.textContains = args.textContains;
+      return services.signalHub.listEvents(caller, filter);
+    },
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_search_signals",
+    title: "Signal Hub: Search Signals",
+    description:
+      "Search all ingested signals with combined filters. "
+      + "Unlike recent_signals, does not require a specific entity — useful for cross-entity queries. "
+      + "Filters: source, signalType, sinceIso, textContains. Returns up to 100 events.",
+    labels: ["signal_hub", "linkedin", "search"],
+    sources: ["signal_hub"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z.object({
+      source: z.enum(["serper_public", "unipile"]).optional(),
+      signalType: z.enum(["post", "reaction", "comment", "profile_change"]).optional(),
+      sinceIso: z.string().min(1).optional(),
+      textContains: z.string().min(1).optional(),
+      limit: z.number().int().positive().max(100).optional(),
+    }).strict(),
+    execute: async ({ services, caller, args }) => {
+      const filter: Parameters<typeof services.signalHub.listEvents>[1] = {
+        limit: args.limit ?? 50,
+      };
+      if (args.source) filter.source = args.source;
+      if (args.signalType) filter.signalType = args.signalType;
+      if (args.sinceIso) filter.sinceIso = args.sinceIso;
+      if (args.textContains) filter.textContains = args.textContains;
+      return services.signalHub.listEvents(caller, filter);
+    },
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_resolve_entity",
+    title: "Signal Hub: Resolve Entity",
+    description:
+      "Resolve a free-text query (founder name, company name, LinkedIn URL or identifier) "
+      + "to a watched entity. Returns watchedId and startupId when unambiguous. "
+      + "Returns candidates + needsClarification when ambiguous. "
+      + "Call this before recent_signals when the caller gives a loose name.",
+    labels: ["signal_hub", "discovery"],
+    sources: ["signal_hub", "hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z.object({
+      query: z.string().min(1),
+    }).strict(),
+    execute: async ({ services, caller, args }) =>
+      services.signalHub.resolveEntity(caller, args.query),
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_list_accounts",
+    title: "Signal Hub: List Unipile Accounts",
+    description:
+      "Return the status of all registered Unipile LinkedIn accounts used for Signal Hub. "
+      + "Shows guardian state: active/frozen/killed, quota used today, last error, next allowed call time. "
+      + "Use this to monitor account health before requesting a refresh.",
+    labels: ["signal_hub", "unipile", "admin"],
+    sources: ["signal_hub"],
+    access: "internal",
+    approvalRequired: false,
+    inputSchema: z.object({}).strict(),
+    execute: async ({ services, caller }) =>
+      services.signalHub.listUnipileAccounts(caller),
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_request_refresh",
+    title: "Signal Hub: Request Refresh (async)",
+    description:
+      "Enqueue a signal refresh for a watched entity. ALWAYS async — returns immediately with jobId. "
+      + "The actual LinkedIn call happens later, rate-limited by the queue and guardian. "
+      + "source defaults to 'serper_public' (no LinkedIn account needed). "
+      + "Use 'unipile' for private feed access — requires unipileAccountId and an active account.",
+    labels: ["signal_hub", "linkedin", "refresh"],
+    sources: ["signal_hub"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z.object({
+      watchedId: z.string().min(1),
+      source: z.enum(["serper_public", "unipile"]).optional(),
+      unipileAccountId: z.string().min(1).optional(),
+    }).strict(),
+    execute: async ({ services, caller, args }) =>
+      services.signalHub.requestRefresh(caller, {
+        watchedId: args.watchedId,
+        ...(args.source !== undefined ? { source: args.source } : {}),
+        ...(args.unipileAccountId !== undefined ? { unipileAccountId: args.unipileAccountId } : {}),
+      }),
+  }),
+
+  defineAgentTool({
+    name: "signal_hub_freeze_account",
+    title: "Signal Hub: Freeze Unipile Account",
+    description:
+      "Immediately freeze a Unipile LinkedIn account to stop all calls from Signal Hub. "
+      + "Use as a kill-switch when suspicious LinkedIn activity is observed. "
+      + "durationHours defaults to 24. Account can be unfrozen via the API. "
+      + "Requires internal_team role.",
+    labels: ["signal_hub", "unipile", "admin", "safety"],
+    sources: ["signal_hub"],
+    access: "internal",
+    approvalRequired: true,
+    inputSchema: z.object({
+      accountId: z.string().min(1),
+      reason: z.string().min(1),
+      durationHours: z.number().int().positive().max(168).optional(),
+    }).strict(),
+    execute: async ({ services, caller, args }) => {
+      await services.signalHub.freezeUnipileAccount(
+        caller,
+        args.accountId,
+        args.reason,
+        args.durationHours ? args.durationHours * 3_600_000 : undefined,
+      );
+      return { frozen: true, accountId: args.accountId };
     },
   }),
 ] as const;

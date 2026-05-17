@@ -210,11 +210,125 @@ The tests cover:
 - unconfigured connector failures
 - connector HTTP client (timeouts, retries, error paths)
 - HubSpot, Monday and Drive connector mapping (with mocked HTTP)
+- Serper connector mapping, headers, error paths
 - agent loop tool execution, repair on unknown tools, and JSON Schema export
 - OpenAI Responses API request/response shape (function_call / output)
 - Gemini functionDeclarations request shape and functionCall/functionResponse turns
 - MCP server tool listing and execution through an in-memory transport
 - Society filtering using inline generic test data
+- Signal Hub: ingest deduplication (Serper and Unipile), content hash stability
+- AccountGuardian: quota exhaustion, Paris operating window, Sunday block, jitter delay, circuit breaker on 429, freeze auto-expiry, kill permanence
+- Unipile webhook: HMAC verification, CREDENTIALS→freeze, DELETED→kill dispatch
+
+## Signal Hub
+
+The Signal Hub captures public and private LinkedIn activity for tracked founders and companies, normalises it into a local append-only event log, and exposes it to the AI agent and MCP tools. No LinkedIn account is touched by the public channel. The private channel (Unipile) is wrapped by a strict safety layer before any call reaches LinkedIn.
+
+### Data flow
+
+```
+Watched entities (SQLite watchlist)
+       │
+       ▼
+Signal queue (in-process, two lanes)
+   ├── Public lane  → Serper.dev → Google SERP → ingest → signal_events
+   └── Unipile lane → AccountGuardian → Unipile API → ingest → signal_events
+                             │
+                    webhook account_status ←── Unipile platform
+```
+
+Every event lands in `signal_events`, a single append-only table. `source` distinguishes the channel. No event is ever updated or deleted.
+
+### Sources
+
+**Serper public** (`SERPER_API_KEY`)
+
+Sends `site:linkedin.com/posts "{name}"` queries to Google via [Serper.dev](https://serper.dev). No LinkedIn account required. Captures any post indexed by Google within the past 24–72 hours. Cost: ~1€/1000 queries.
+
+**Unipile private** (`UNIPILE_DSN` + `UNIPILE_API_KEY`)
+
+Reads the private LinkedIn feed of a VC account connected in read-only mode via [Unipile](https://developer.unipile.com). Gives access to posts not indexed by Google (connection-visibility posts, reactions). Every call goes through `AccountGuardian` — see below.
+
+### AccountGuardian
+
+One `AccountGuardian` instance per connected Unipile account, held in memory and snapshotted to SQLite on every state change.
+
+**Invariants enforced before every API call:**
+
+| Rule | Detail |
+| --- | --- |
+| Daily quota | 60 calls/day (configurable, hard max 100). Resets at midnight Paris. |
+| Operating window | 08:00–22:00 Europe/Paris, Sundays excluded. No calls at night or on Sundays regardless of quota remaining. |
+| Jitter delay | 60–300 s random delay between consecutive calls on the same account. No fixed schedule. |
+| State gate | `active` → calls allowed subject to rules above. `frozen` → all calls blocked until `frozenUntil`. `killed` → permanent block. |
+
+**Circuit breaker triggers:**
+
+- HTTP 429 from Unipile → immediate `freeze(24h)`, persisted to SQLite
+- Unipile webhook `account_status = CREDENTIALS | ERROR` → immediate `freeze(24h)`
+- Unipile webhook `account_status = DELETED` → `kill()` (permanent)
+- Webhook `RECONNECTED | OK` after a credentials freeze → automatic `unfreeze()`
+
+**Kill-switch:** `POST /signals/unipile/accounts/:id/freeze` or `/kill` (requires `internal_team`). Also available as MCP tool `signal_hub_freeze_account` (approval-required — blocked on MCP, only executable via the HTTP API).
+
+**Code-level write protection:** `src/connectors/unipile.ts` exports a `UnipileReadOnlyClient` with exactly 6 methods: `listUserPosts`, `getPost`, `listPostReactions`, `listPostComments`, `getUserProfile`, `getAccountStatus`. Methods for `like`, `comment`, `invite`, `sendMessage`, `createPost` do not exist in this module. No policy enforcement needed — there is nothing to call.
+
+### Signal deduplication
+
+At ingest, a SHA-256 hash is computed from the signal's identifying content (URL + snippet for Serper, `socialId` + text for Unipile). A `(source, signal_type, content_hash)` unique constraint prevents duplicates at the database level. The ingest function checks before insert to return a fast `{ status: "duplicate" }` without a write.
+
+### Entity resolver
+
+`src/services/signalHub/resolver.ts` maps free-text queries to `WatchedEntity` records. Resolution order:
+
+1. LinkedIn URL → extract `public_identifier`, look up by `linkedin_identifier`
+2. Exact display name match in watchlist
+3. Substring display name match (returns `needsClarification` if multiple)
+4. HubSpot startup name cross-reference (for entities known in CRM but not yet watched)
+
+### Queue
+
+Two in-process FIFO lanes — not persisted (jobs lost on restart, acceptable for V1):
+
+- **Public lane**: one Serper query every 3.5 seconds (~17/min, under the 20/min cap)
+- **Unipile lane**: polled every 15 seconds; each dequeue first calls `guardian.canRun()`, re-enqueues with the guardian's `retryAfterMs` if refused
+
+No MCP tool can trigger a synchronous external call. `signal_hub_request_refresh` returns `{ accepted: true, jobId }` immediately; the actual query happens later in the queue.
+
+### Storage
+
+SQLite (`better-sqlite3`) at `.data/signal-hub.db` (configurable via `SIGNAL_STORE_PATH`). WAL mode + foreign keys enabled. Migration DDL in `src/storage/migrations/001_signal_hub.sql` runs at startup.
+
+The `SignalStore` interface is the only layer services touch — a `PostgresSignalStore` implementing the same interface can be swapped in by changing `SIGNAL_STORE_DRIVER` without touching any service code.
+
+### MCP Tools
+
+| Tool | Access | Notes |
+| --- | --- | --- |
+| `signal_hub_list_watched` | confidential | List watchlist, optional priority filter |
+| `signal_hub_add_watched` | confidential | Requires `internal_team`. Deduplicates on `linkedinIdentifier`. |
+| `signal_hub_set_priority` | confidential | `hot / warm / cold` |
+| `signal_hub_recent_signals` | confidential | Filter by entity, source, type, date window, text |
+| `signal_hub_search_signals` | confidential | Cross-entity search |
+| `signal_hub_resolve_entity` | confidential | Free text → `watchedId` + `startupId` |
+| `signal_hub_list_accounts` | internal | Guardian snapshots: quota, state, last error |
+| `signal_hub_request_refresh` | confidential | **Always async** — returns `{ accepted, jobId }` |
+| `signal_hub_freeze_account` | internal | Approval-required — blocked on MCP, only via HTTP API |
+
+### Webhook
+
+`POST /signals/unipile/webhook` — receives `account_status` events from Unipile. Verified via HMAC-SHA256 (`UNIPILE_WEBHOOK_SECRET`). Feeds the guardian state machine and persists every event to `unipile_account_status_events` for audit.
+
+### Environment variables
+
+```
+SERPER_API_KEY=           # Serper.dev key — public LinkedIn search via Google SERP
+UNIPILE_DSN=              # https://apiX.unipile.com:PORT (from Unipile dashboard)
+UNIPILE_API_KEY=          # Unipile API key
+UNIPILE_WEBHOOK_SECRET=   # HMAC-SHA256 secret set in Unipile dashboard
+SIGNAL_STORE_PATH=        # SQLite path (default: .data/signal-hub.db)
+UNIPILE_DAILY_QUOTA=      # Per-account daily call quota (default: 60, max: 100)
+```
 
 ## Next Work
 
