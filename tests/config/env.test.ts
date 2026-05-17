@@ -84,4 +84,38 @@ describe("loadConfig", () => {
       "https://admin.tomcat.eu",
     ]);
   });
+
+  it("defaults signal store driver to sqlite", () => {
+    const cfg = loadConfig(minimalEnv());
+    expect(cfg.signalHub.storeDriver).toBe("sqlite");
+  });
+
+  it("includes database url when set", () => {
+    const cfg = loadConfig(
+      minimalEnv({ DATABASE_URL: "postgresql://localhost/tomcat" }),
+    );
+    expect(cfg.database.url).toBe("postgresql://localhost/tomcat");
+  });
+
+  it("database url is undefined when not set", () => {
+    const cfg = loadConfig(minimalEnv());
+    expect(cfg.database.url).toBeUndefined();
+  });
+
+  it("rejects postgres signal store until implemented", () => {
+    expect(() =>
+      loadConfig(minimalEnv({ SIGNAL_STORE_DRIVER: "postgres" })),
+    ).toThrow(/postgres/);
+  });
+
+  it("allows postgres signal store when DATABASE_URL is set", () => {
+    const cfg = loadConfig(
+      minimalEnv({
+        SIGNAL_STORE_DRIVER: "postgres",
+        DATABASE_URL: "postgresql://localhost/tomcat",
+      }),
+    );
+    expect(cfg.signalHub.storeDriver).toBe("postgres");
+    expect(cfg.database.url).toBe("postgresql://localhost/tomcat");
+  });
 });

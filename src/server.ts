@@ -9,10 +9,12 @@ import { createServiceTokenResolver } from "./auth/serviceToken.js";
 import { createMockResolver } from "./auth/mock.js";
 import { createAuthMiddleware } from "./auth/middleware.js";
 import { placeholderRoleResolver } from "./auth/roleResolver.js";
+import { createDbRoleResolver } from "./auth/dbRoleResolver.js";
 import type { IdentityResolver } from "./auth/types.js";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { buildConnectors } from "./connectors/registry.js";
+import { buildStoreBackedConnectors } from "./connectors/storeBacked.js";
 import { createSerperConnector, createUnconfiguredSerperConnector } from "./connectors/serper.js";
 import { createUnipileConnector, createUnconfiguredUnipileConnector } from "./connectors/unipile.js";
 import { buildLlmRegistry } from "./llm/registry.js";
@@ -22,10 +24,14 @@ import { buildBriefsService } from "./services/briefs.js";
 import { buildCompanyContextService } from "./services/companyContext.js";
 import { buildAiService } from "./services/ai.js";
 import { createSqliteSignalStore } from "./storage/sqliteSignalStore.js";
+import { createPgSignalStore } from "./storage/pgSignalStore.js";
+import { createPgCoreStore } from "./storage/pgCoreStore.js";
+import { createDb } from "./storage/pgClient.js";
 import { createGuardianRegistry } from "./services/signalHub/accountGuardian.js";
 import { createEntityResolver } from "./services/signalHub/resolver.js";
 import { createSignalQueue } from "./services/signalHub/queue.js";
 import { buildSignalHubService } from "./services/signalHub/index.js";
+import { createSyncScheduler } from "./sync/scheduler.js";
 import { errorHandler } from "./api/errorHandler.js";
 import { registerHealthRoutes } from "./api/routes/health.js";
 import { registerMeRoutes } from "./api/routes/me.js";
@@ -35,6 +41,7 @@ import { registerInternalRoutes } from "./api/routes/internal.js";
 import { registerConnectorRoutes } from "./api/routes/connectors.js";
 import { registerSignalRoutes } from "./api/routes/signals.js";
 import { registerSignalsWebhookRoutes } from "./api/routes/signalsWebhook.js";
+import { registerAdminRoutes } from "./api/routes/admin.js";
 
 export const buildServer = async (
   config: AppConfig,
@@ -51,9 +58,13 @@ export const buildServer = async (
       "CORS_ALLOWED_ORIGINS must be configured in production",
     );
   }
-  if (config.env === "production" && config.auth.googleOAuthClientId) {
+  if (
+    config.env === "production" &&
+    config.auth.googleOAuthClientId &&
+    !config.database.url
+  ) {
     throw new Error(
-      "placeholderRoleResolver cannot be used in production. Configure a real role resolver.",
+      "Google OAuth in production requires DATABASE_URL. placeholderRoleResolver cannot be used in production.",
     );
   }
 
@@ -69,20 +80,40 @@ export const buildServer = async (
 
   const auditor = createAuditor(app.log as unknown as Logger);
 
+  // --- CoreStore (Postgres, optional) ---
+  const pgDb = config.database.url ? createDb(config.database.url) : undefined;
+  let coreStore: Awaited<ReturnType<typeof createPgCoreStore>> | undefined;
+  if (pgDb) {
+    coreStore = await createPgCoreStore(pgDb);
+    app.log.info("CoreStore (Postgres) initialised");
+  }
+
+  // --- Connectors ---
+  const httpConnectors = buildConnectors(config);
+  const connectors = coreStore
+    ? buildStoreBackedConnectors(coreStore, httpConnectors)
+    : httpConnectors;
+
+  // --- Auth resolvers ---
   const resolvers: IdentityResolver[] = [];
   if (config.auth.googleOAuthClientId) {
-    resolvers.push(
-      createGoogleHumanResolver({
-        clientId: config.auth.googleOAuthClientId,
-        allowedDomains: config.auth.allowedGoogleDomains,
-        resolveRole: placeholderRoleResolver,
-      }),
-    );
-    if (config.env === "development") {
+    const roleResolver = coreStore
+      ? createDbRoleResolver(coreStore)
+      : placeholderRoleResolver;
+
+    if (!coreStore && config.env === "development") {
       app.log.warn(
         "placeholder role resolver enabled: replace before production auth rollout",
       );
     }
+
+    resolvers.push(
+      createGoogleHumanResolver({
+        clientId: config.auth.googleOAuthClientId,
+        allowedDomains: config.auth.allowedGoogleDomains,
+        resolveRole: roleResolver,
+      }),
+    );
   }
   resolvers.push(
     createServiceTokenResolver({
@@ -98,7 +129,8 @@ export const buildServer = async (
   }
 
   const auth = createAuthMiddleware({ resolvers, auditor });
-  const connectors = buildConnectors(config);
+
+  // --- Services ---
   const society = buildSocietyService({ connectors });
   const startups = buildStartupsService({ connectors });
   const briefs = buildBriefsService({ connectors });
@@ -108,15 +140,23 @@ export const buildServer = async (
     society,
   });
 
-  // Signal Hub
+  // --- Signal Hub ---
   const { signalHub: shConfig } = config;
-  mkdirSync(dirname(shConfig.storePath) === "." ? ".data" : dirname(shConfig.storePath), {
-    recursive: true,
-  });
-  const signalStore = createSqliteSignalStore(shConfig.storePath);
+
+  let signalStore: Awaited<ReturnType<typeof createSqliteSignalStore>> | Awaited<ReturnType<typeof createPgSignalStore>>;
+  if (shConfig.storeDriver === "postgres" && pgDb) {
+    signalStore = await createPgSignalStore(pgDb); // reuses the shared Postgres pool
+    app.log.info("SignalStore using Postgres");
+  } else {
+    mkdirSync(
+      dirname(shConfig.storePath) === "." ? ".data" : dirname(shConfig.storePath),
+      { recursive: true },
+    );
+    signalStore = createSqliteSignalStore(shConfig.storePath);
+  }
+
   const guardianRegistry = createGuardianRegistry(signalStore);
 
-  // Pre-load guardian state from DB for any previously registered accounts
   void signalStore.listUnipileAccounts().then((accounts) => {
     for (const account of accounts) {
       if (account.state !== "killed") {
@@ -152,11 +192,30 @@ export const buildServer = async (
 
   signalQueue.start();
 
+  // --- Sync scheduler (when CoreStore available) ---
+  let syncScheduler: ReturnType<typeof createSyncScheduler> | undefined;
+  if (coreStore) {
+    const logger = app.log as unknown as Logger;
+    syncScheduler = createSyncScheduler({
+      store: coreStore,
+      connectors: httpConnectors,
+      logger,
+    });
+    syncScheduler.start();
+  }
+
+  app.addHook("onClose", async () => {
+    syncScheduler?.stop();
+    signalQueue.stop();
+    await pgDb?.end();
+  });
+
+  // --- LLM + AI routes ---
   const llmRegistry = buildLlmRegistry(config);
 
   app.setErrorHandler(errorHandler);
 
-  registerHealthRoutes(app, connectors);
+  registerHealthRoutes(app, connectors, coreStore);
   registerMeRoutes(app, auth);
   registerSocietyRoutes(app, auth, society);
   registerInternalRoutes(app, auth, briefs);
@@ -168,6 +227,10 @@ export const buildServer = async (
     guardianRegistry,
     shConfig.unipileWebhookSecret,
   );
+
+  if (coreStore) {
+    registerAdminRoutes(app, auth, coreStore);
+  }
 
   if (llmRegistry.hasAnyProvider()) {
     const ai = buildAiService({

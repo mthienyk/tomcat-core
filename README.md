@@ -1,9 +1,9 @@
 # Tomcat Core
 
-Central AI server for Tomcat. The Core owns identity, permissions, source access,
-business normalization, audit logs, and the agentic tool layer used by future
-interfaces such as Society, the team MCP, investor MCP clients, and a Chrome
-extension.
+Central server and data platform for Tomcat. Core owns identity, permissions,
+data synchronisation, audit logs, business normalisation, and the agentic tool
+layer used by the Society platform, the team MCP, investor MCP clients, and a
+Chrome extension.
 
 ## Principles
 
@@ -15,6 +15,8 @@ extension.
   tools, then those tools apply permissions before reading data.
 - Connectors read external systems. Services turn those reads into Tomcat domain
   objects and enforce permissions.
+- The database is the read model. Services read from Postgres; sync workers keep
+  it fresh. Connector APIs are only called when the local copy is absent or stale.
 
 ## Structure
 
@@ -23,22 +25,25 @@ src/
   agent/          Provider-neutral tool planning and execution
   api/            Fastify routes and error handling
   audit/          Structured audit logger
-  auth/           Google human auth, service tokens, dev mock, role resolver
-  config/         Startup env validation
-  connectors/     HubSpot, Drive, Monday, investors + shared http client (timeouts, retries)
+  auth/           Google human auth, service tokens, dev mock, DB role resolver
+  config/         Startup env validation (Zod)
+  connectors/     HubSpot, Drive, Monday, investors + store-backed adapters
   domain/         Tomcat entities, identity and agent tool schemas
   errors/         Typed errors
   llm/            Anthropic, OpenAI and Google provider registry
   mcp/            MCP server exposing the agent tool registry
   permissions/    Central policies and response redaction
   services/       Business services used by API and agent tools
+  storage/        CoreStore interface, Postgres implementations, migrations
+  sync/           Idempotent sync workers and scheduler
 ```
 
 ## Identity
 
-Humans authenticate through Google OAuth. The current local role resolver maps
-`@tomcat.eu` users to `internal_team` and logs a warning in development. Replace
-it before a production auth rollout.
+Humans authenticate through Google OAuth. When `DATABASE_URL` is set, roles are
+resolved from the `users` table — managed via `POST /internal/users`. In
+development without a database, a placeholder resolver grants `internal_team` to
+any `@tomcat.eu` address and logs a warning.
 
 Machine clients authenticate with signed service JWTs (`HS256` for this V1).
 Tokens carry `iss`, `aud`, `sub`, `scope`, `iat`, `nbf` when needed, `exp`, and
@@ -47,6 +52,38 @@ a third-party app.
 
 For Society endpoints, service calls must include delegated external investor
 identity with `act_as.investorId`. Calls without delegation are rejected.
+
+## Database — Core Store
+
+When `DATABASE_URL` is set, the server instantiates a **Postgres read model**
+(`CoreStore`) that stores all external data locally. This eliminates direct
+connector API calls on hot paths and makes the platform safe to query at Society
+scale.
+
+**Migrations** (`src/storage/migrations/`) run idempotently at startup:
+
+| File | Contents |
+| --- | --- |
+| `pg_001_signal_hub.sql` | Signal Hub tables (watched entities, events, Unipile accounts) |
+| `pg_002_core.sql` | Startups, portfolio companies, deals, notes, meetings, board packs, signals, events, sync runs, dataset freshness |
+| `pg_003_identity.sql` | Internal users and investor records |
+
+**Sync workers** (`src/sync/`) synchronise each dataset independently on a 15-minute cycle (10 s startup delay). Workers are idempotent — they can be re-run without side effects. Available datasets:
+
+| Worker | Dataset | Source |
+| --- | --- | --- |
+| `hubspotStartupsWorker` | `hubspot.startups` | HubSpot companies |
+| `hubspotActivityWorker` | `hubspot.deals`, `hubspot.notes`, `hubspot.meetings` | HubSpot deals, engagements |
+| `mondayPortfolioWorker` | `monday.portfolio` | Monday.com portfolio board |
+| `mondaySignalsWorker` | `monday.signals` | Monday.com signal board |
+| `mondayEventsWorker` | `monday.events` | Monday.com events board |
+| `driveBoardPacksWorker` | `drive.boardPacks` | Google Drive board packs |
+
+**Data freshness** is tracked per dataset in the `dataset_freshness` table and exposed via `GET /health/readiness`. A dataset is `healthy` when it has been synced at least once successfully.
+
+**Store-backed connectors** (`src/connectors/storeBacked.ts`) wrap the `CoreStore` to satisfy the existing `Connectors` interface. On each call they check freshness (TTL-cached for 5 s); if the dataset is not yet healthy they fall back to the live HTTP connector transparently.
+
+Without `DATABASE_URL`, the server operates in live-only mode: all connector calls go directly to external APIs.
 
 ## Connectors
 
@@ -152,14 +189,20 @@ Example Cursor / Claude Desktop config snippet:
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/health` | none | Liveness |
-| `GET` | `/health/connectors` | none | Parallel probes: HubSpot `listStartups`, Monday `listPortfolio`, Drive `listBoardPacksForCompany("Tomcat")`. Status `ok` or `degraded` |
+| `GET` | `/health` | none | Liveness — always 200 |
+| `GET` | `/health/connectors` | none | Parallel probes: HubSpot, Monday, Drive. Status `ok` or `degraded` |
+| `GET` | `/health/readiness` | none | Dataset freshness from CoreStore. 503 when no database |
 | `GET` | `/me` | authenticated | Resolved human or machine identity |
-| `GET` | `/connectors/hubspot/startups` | `society.read` | Query: `q` (name substring), `sector`, `limit`. Returns visible startups for Society-style browsing |
+| `GET` | `/connectors/hubspot/startups` | `society.read` | Query: `q`, `sector`, `limit` |
 | `POST` | `/ai/query` | `ai.query` | Agentic tool planning and execution |
-| `GET` | `/society/investors/:id/home` | `society.read` | Requires configured connectors |
-| `GET` | `/society/portfolio/:id/signals` | `society.read` | Requires configured connectors |
-| `POST` | `/internal/briefs/board-prep` | `briefs.write` | Requires configured connectors |
+| `GET` | `/society/investors/:id/home` | `society.read` | Requires connectors |
+| `GET` | `/society/portfolio/:id/signals` | `society.read` | Requires connectors |
+| `POST` | `/internal/briefs/board-prep` | `briefs.write` | Requires connectors |
+| `GET` | `/internal/investors` | `internal.read` | List all investor records |
+| `POST` | `/internal/investors` | `admin.write` | Upsert investor record |
+| `GET` | `/internal/users` | `internal.read` | List internal users and roles |
+| `POST` | `/internal/users` | `admin.write` | Upsert internal user with role |
+| `GET` | `/internal/sync/freshness` | `internal.read` | Per-dataset sync status |
 
 ## Quick Start
 
@@ -169,18 +212,19 @@ npm install
 npm run dev
 ```
 
-In production, configure `CORS_ALLOWED_ORIGINS` with an explicit allowlist.
+For full data sync capability, set `DATABASE_URL` to a Postgres connection string.
+The server runs without it, falling back to live connector calls on every request.
 
-Minimal health check:
+Liveness:
 
 ```bash
 curl -s http://localhost:4000/health
 ```
 
-Connector smoke check (no auth; hits real APIs if configured):
+Readiness (requires `DATABASE_URL`):
 
 ```bash
-curl -s http://localhost:4000/health/connectors
+curl -s http://localhost:4000/health/readiness
 ```
 
 Local identity check:
@@ -191,8 +235,27 @@ curl -s \
   http://localhost:4000/me
 ```
 
-Calling a connector-backed endpoint without real connector config should return
-`503 CONNECTOR_NOT_CONFIGURED`. That is intentional.
+## Deployment
+
+The `Dockerfile` builds a multi-stage Node 22 Alpine image. The runtime stage
+includes native build tools needed to compile `better-sqlite3`.
+
+```bash
+docker build -t tomcat-core .
+docker run -p 4000:4000 --env-file .env tomcat-core
+```
+
+Required environment variables in production:
+
+```
+NODE_ENV=production
+DATABASE_URL=postgres://user:pass@host:5432/tomcat
+CORS_ALLOWED_ORIGINS=https://society.example.com
+GOOGLE_OAUTH_CLIENT_ID=...
+SERVICE_TOKEN_SECRET=...
+```
+
+See `.env.example` for the full list with descriptions.
 
 ## Tests
 
@@ -203,10 +266,10 @@ npm run typecheck
 
 The tests cover:
 
-- config validation, including provider selection
+- config validation, including provider selection and `DATABASE_URL` guards
 - service token signing, expiry and scope filtering
 - production boot guards for CORS and placeholder role resolver
-- permission and redaction policies
+- permission and redaction policies (including `admin.write`)
 - unconfigured connector failures
 - connector HTTP client (timeouts, retries, error paths)
 - HubSpot, Monday and Drive connector mapping (with mocked HTTP)
@@ -222,12 +285,16 @@ The tests cover:
 
 ## Signal Hub
 
-The Signal Hub captures public and private LinkedIn activity for tracked founders and companies, normalises it into a local append-only event log, and exposes it to the AI agent and MCP tools. No LinkedIn account is touched by the public channel. The private channel (Unipile) is wrapped by a strict safety layer before any call reaches LinkedIn.
+The Signal Hub captures public and private LinkedIn activity for tracked
+founders and companies, normalises it into a local append-only event log, and
+exposes it to the AI agent and MCP tools. No LinkedIn account is touched by the
+public channel. The private channel (Unipile) is wrapped by a strict safety
+layer before any call reaches LinkedIn.
 
 ### Data flow
 
 ```
-Watched entities (SQLite watchlist)
+Watched entities (watchlist)
        │
        ▼
 Signal queue (in-process, two lanes)
@@ -237,7 +304,8 @@ Signal queue (in-process, two lanes)
                     webhook account_status ←── Unipile platform
 ```
 
-Every event lands in `signal_events`, a single append-only table. `source` distinguishes the channel. No event is ever updated or deleted.
+Every event lands in `signal_events`, a single append-only table. `source`
+distinguishes the channel. No event is ever updated or deleted.
 
 ### Sources
 
@@ -251,7 +319,7 @@ Reads the private LinkedIn feed of a VC account connected in read-only mode via 
 
 ### AccountGuardian
 
-One `AccountGuardian` instance per connected Unipile account, held in memory and snapshotted to SQLite on every state change.
+One `AccountGuardian` instance per connected Unipile account, held in memory and snapshotted to the database on every state change.
 
 **Invariants enforced before every API call:**
 
@@ -264,7 +332,7 @@ One `AccountGuardian` instance per connected Unipile account, held in memory and
 
 **Circuit breaker triggers:**
 
-- HTTP 429 from Unipile → immediate `freeze(24h)`, persisted to SQLite
+- HTTP 429 from Unipile → immediate `freeze(24h)`, persisted to DB
 - Unipile webhook `account_status = CREDENTIALS | ERROR` → immediate `freeze(24h)`
 - Unipile webhook `account_status = DELETED` → `kill()` (permanent)
 - Webhook `RECONNECTED | OK` after a credentials freeze → automatic `unfreeze()`
@@ -297,9 +365,12 @@ No MCP tool can trigger a synchronous external call. `signal_hub_request_refresh
 
 ### Storage
 
-SQLite (`better-sqlite3`) at `.data/signal-hub.db` (configurable via `SIGNAL_STORE_PATH`). WAL mode + foreign keys enabled. Migration DDL in `src/storage/migrations/001_signal_hub.sql` runs at startup.
+`SIGNAL_STORE_DRIVER` selects the store implementation:
 
-The `SignalStore` interface is the only layer services touch — a `PostgresSignalStore` implementing the same interface can be swapped in by changing `SIGNAL_STORE_DRIVER` without touching any service code.
+- **`sqlite`** (default): `better-sqlite3` at `.data/signal-hub.db` (override with `SIGNAL_STORE_PATH`). WAL mode + foreign keys enabled.
+- **`postgres`**: uses the shared `DATABASE_URL` pool. Requires `DATABASE_URL` to be set.
+
+Migration DDL runs at startup for both drivers. The `SignalStore` interface is the only layer services touch.
 
 ### MCP Tools
 
@@ -326,20 +397,18 @@ SERPER_API_KEY=           # Serper.dev key — public LinkedIn search via Google
 UNIPILE_DSN=              # https://apiX.unipile.com:PORT (from Unipile dashboard)
 UNIPILE_API_KEY=          # Unipile API key
 UNIPILE_WEBHOOK_SECRET=   # HMAC-SHA256 secret set in Unipile dashboard
-SIGNAL_STORE_PATH=        # SQLite path (default: .data/signal-hub.db)
+SIGNAL_STORE_DRIVER=      # sqlite (default) or postgres (requires DATABASE_URL)
+SIGNAL_STORE_PATH=        # SQLite file path (default: .data/signal-hub.db)
 UNIPILE_DAILY_QUOTA=      # Per-account daily call quota (default: 60, max: 100)
 ```
 
 ## Next Work
 
-1. Replace the placeholder role resolver with the real Tomcat role source.
-2. Short-lived cache for expensive reads such as `listStartups` to protect HubSpot
-   rate limits when the agent or Society issues many sequential calls.
-3. Zod validation of raw connector payloads before mapping to domain entities.
-4. Stable cross-system identifiers (Monday board id, HubSpot company id, Drive
+1. Zod validation of raw connector payloads before mapping to domain entities.
+2. Stable cross-system identifiers (Monday board id, HubSpot company id, Drive
    folder id) instead of name-only joins where precision matters.
-5. Wire the MCP server through Tomcat identity once we have a real per-client
+3. Wire the MCP server through Tomcat identity once we have a real per-client
    auth story (today it runs as a single local operator).
-6. Expand the agent tool catalog only when a real use case needs it; consider
-   provider-native tool search once the registry grows past roughly 10–15 tools.
-7. Persist audit logs to an external sink.
+4. Expand the agent tool catalog only when a real use case needs it.
+5. Persist audit logs to an external sink (Datadog, Postgres, etc.).
+6. Durable Signal Hub queue (Redis or Postgres-backed) to survive restarts.

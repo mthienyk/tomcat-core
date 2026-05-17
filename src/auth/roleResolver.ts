@@ -5,7 +5,7 @@ export type ResolvedRole = {
   team: string | undefined;
 };
 
-export type RoleResolver = (email: string) => ResolvedRole;
+export type RoleResolver = (email: string) => ResolvedRole | Promise<ResolvedRole>;
 
 export const placeholderRoleResolver: RoleResolver = (email) => {
   if (email.endsWith("@tomcat.eu")) {

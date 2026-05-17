@@ -17,7 +17,8 @@ export type Action =
   | "society.write"
   | "ai.query"
   | "briefs.write"
-  | "internal.read";
+  | "internal.read"
+  | "admin.write";
 
 const TIER_ORDER: Record<
   "bronze" | "silver" | "gold" | "platinum",
@@ -41,6 +42,7 @@ const canHuman = (
   if (action === "ai.query") return isInternalRole(human.role);
   if (action === "briefs.write") return isInternalRole(human.role);
   if (action === "internal.read") return isInternalRole(human.role);
+  if (action === "admin.write") return human.role === "admin";
   if (action === "society.write")
     return human.role === "admin" || human.role === "investor_relations";
   return false;

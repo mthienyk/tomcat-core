@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { ingestSerperResult, ingestUnipilePost, summarise } from "../../src/services/signalHub/ingest.js";
 import type { SignalStore } from "../../src/storage/signalStore.js";
-import type { SignalEvent, WatchedEntity } from "../../src/domain/signalHub.js";
+import type { SignalEvent } from "../../src/domain/signalHub.js";
 
 const makeStore = (): SignalStore & { events: SignalEvent[] } => {
   const events: SignalEvent[] = [];

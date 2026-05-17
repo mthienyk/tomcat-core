@@ -63,6 +63,8 @@ const EnvSchema = z.object({
   UNIPILE_WEBHOOK_SECRET: z.string().optional(),
   // Path for SQLite store. Defaults to .data/signal-hub.db relative to cwd.
   SIGNAL_STORE_PATH: z.string().optional(),
+  // Only sqlite is implemented today; postgres is reserved for a future PostgresSignalStore.
+  SIGNAL_STORE_DRIVER: z.enum(["sqlite", "postgres"]).default("sqlite"),
   // Daily call quota per Unipile account (override default of 60).
   UNIPILE_DAILY_QUOTA: z.coerce.number().int().positive().max(100).default(60),
 
@@ -74,6 +76,7 @@ const EnvSchema = z.object({
     .default("anthropic"),
   LLM_DEFAULT_MODEL: z.string().default("claude-sonnet-4-6"),
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  DATABASE_URL: z.string().optional(),
 });
 
 export type RawEnv = z.infer<typeof EnvSchema>;
@@ -103,6 +106,7 @@ export type AppConfig = {
       unipileDsn: string | undefined;
       unipileApiKey: string | undefined;
       unipileWebhookSecret: string | undefined;
+      storeDriver: "sqlite" | "postgres";
       storePath: string;
       unipileDailyQuota: number;
     };
@@ -116,6 +120,9 @@ export type AppConfig = {
   cors: {
     allowedOrigins: string[];
   };
+  database: {
+    url: string | undefined;
+  };
 };
 
 export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig => {
@@ -123,6 +130,12 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
 
   if (parsed.NODE_ENV === "production" && parsed.ALLOW_MOCK_AUTH) {
     throw new Error("ALLOW_MOCK_AUTH must be false in production.");
+  }
+
+  if (parsed.SIGNAL_STORE_DRIVER === "postgres" && !parsed.DATABASE_URL) {
+    throw new Error(
+      "SIGNAL_STORE_DRIVER=postgres requires DATABASE_URL to be set.",
+    );
   }
 
   return {
@@ -150,6 +163,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       unipileDsn: parsed.UNIPILE_DSN,
       unipileApiKey: parsed.UNIPILE_API_KEY,
       unipileWebhookSecret: parsed.UNIPILE_WEBHOOK_SECRET,
+      storeDriver: parsed.SIGNAL_STORE_DRIVER,
       storePath: parsed.SIGNAL_STORE_PATH ?? ".data/signal-hub.db",
       unipileDailyQuota: parsed.UNIPILE_DAILY_QUOTA,
     },
@@ -162,6 +176,9 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     },
     cors: {
       allowedOrigins: csv(parsed.CORS_ALLOWED_ORIGINS),
+    },
+    database: {
+      url: parsed.DATABASE_URL,
     },
   };
 };

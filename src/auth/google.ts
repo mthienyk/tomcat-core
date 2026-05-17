@@ -7,7 +7,7 @@ import type { IdentityResolver } from "./types.js";
 export type GoogleResolverOptions = {
   clientId: string;
   allowedDomains: string[];
-  resolveRole: (email: string) => { role: Role; team: string | undefined };
+  resolveRole: (email: string) => { role: Role; team: string | undefined } | Promise<{ role: Role; team: string | undefined }>;
 };
 
 const extractBearer = (req: FastifyRequest): string | undefined => {
@@ -54,7 +54,7 @@ export const createGoogleHumanResolver = (
         throw AuthInvalid(`Domain "${domain}" is not allowed`);
       }
 
-      const { role, team } = opts.resolveRole(email);
+      const { role, team } = await opts.resolveRole(email);
       return {
         kind: "human",
         email,

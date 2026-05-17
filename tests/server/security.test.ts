@@ -18,7 +18,18 @@ const baseProdConfig = (): AppConfig => ({
   connectors: {
     hubspotToken: undefined,
     driveServiceAccountJson: undefined,
+    driveServiceAccountFile: undefined,
+    driveSharedDriveId: undefined,
     mondayToken: undefined,
+  },
+  signalHub: {
+    serperApiKey: undefined,
+    unipileDsn: undefined,
+    unipileApiKey: undefined,
+    unipileWebhookSecret: undefined,
+    storeDriver: "sqlite",
+    storePath: ".data/test-signal-hub.db",
+    unipileDailyQuota: 60,
   },
   llm: {
     anthropicApiKey: undefined,
@@ -30,6 +41,9 @@ const baseProdConfig = (): AppConfig => ({
   cors: {
     allowedOrigins: [],
   },
+  database: {
+    url: undefined,
+  },
 });
 
 describe("server production security guards", () => {
@@ -39,10 +53,12 @@ describe("server production security guards", () => {
     );
   });
 
-  it("refuses placeholder role resolver in production", async () => {
+  it("refuses Google OAuth without DATABASE_URL in production", async () => {
     const config = baseProdConfig();
     config.cors.allowedOrigins = ["https://society.tomcat.eu"];
     config.auth.googleOAuthClientId = "google-client-id";
-    await expect(buildServer(config)).rejects.toThrow(/placeholderRoleResolver/);
+    await expect(buildServer(config)).rejects.toThrow(
+      /placeholderRoleResolver|DATABASE_URL/,
+    );
   });
 });
