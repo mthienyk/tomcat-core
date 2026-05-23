@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Install Scaleway CLI
         run: |
-          curl -sSL https://github.com/scaleway/scaleway-cli/releases/download/v2.56.0/scw-linux-x86_64 -o scw
+          curl -sSL "https://github.com/scaleway/scaleway-cli/releases/download/v2.56.0/scaleway-cli_2.56.0_linux_amd64" -o scw
           chmod +x scw
           sudo mv scw /usr/local/bin/scw
 
@@ -83,7 +83,7 @@ jobs:
     steps:
       - name: Install Scaleway CLI
         run: |
-          curl -sSL https://github.com/scaleway/scaleway-cli/releases/download/v2.56.0/scw-linux-x86_64 -o scw
+          curl -sSL "https://github.com/scaleway/scaleway-cli/releases/download/v2.56.0/scaleway-cli_2.56.0_linux_amd64" -o scw
           chmod +x scw
           sudo mv scw /usr/local/bin/scw
 
