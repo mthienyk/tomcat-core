@@ -1,7 +1,7 @@
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AuthInvalid } from "../errors/index.js";
-import type { Identity, InvestorTier, Role } from "../domain/identity.js";
+import type { Identity, Role } from "../domain/identity.js";
 import type { IdentityResolver } from "./types.js";
 
 const MockHumanSchema = z.object({
@@ -17,7 +17,6 @@ const MockHumanSchema = z.object({
     "service_client",
   ]),
   investorId: z.string().optional(),
-  investorTier: z.enum(["bronze", "silver", "gold", "platinum"]).optional(),
 });
 
 const MockServiceSchema = z.object({
@@ -56,7 +55,6 @@ export const createMockResolver = (): IdentityResolver => ({
     const human = MockHumanSchema.safeParse(parsed);
     if (human.success) {
       const role: Role = human.data.role;
-      const tier: InvestorTier | undefined = human.data.investorTier;
       return {
         kind: "human",
         email: human.data.email,
@@ -64,7 +62,6 @@ export const createMockResolver = (): IdentityResolver => ({
         role,
         team: undefined,
         investorId: human.data.investorId,
-        investorTier: tier,
       };
     }
 
@@ -79,7 +76,6 @@ export const createMockResolver = (): IdentityResolver => ({
               role: service.data.onBehalfOfRole as Role,
               team: undefined,
               investorId: service.data.onBehalfOfInvestorId,
-              investorTier: undefined,
             }
           : undefined;
       return {

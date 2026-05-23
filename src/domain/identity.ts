@@ -20,8 +20,6 @@ export const INTERNAL_ROLES: ReadonlySet<InternalRole> = new Set([
 export const isInternalRole = (role: Role): role is InternalRole =>
   INTERNAL_ROLES.has(role as InternalRole);
 
-export type InvestorTier = "bronze" | "silver" | "gold" | "platinum";
-
 export type HumanIdentity = {
   kind: "human";
   email: string;
@@ -29,7 +27,6 @@ export type HumanIdentity = {
   role: Role;
   team: string | undefined;
   investorId: string | undefined;
-  investorTier: InvestorTier | undefined;
 };
 
 export type ServiceIdentity = {

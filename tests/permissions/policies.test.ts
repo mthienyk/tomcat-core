@@ -21,17 +21,15 @@ const internal: Identity = {
   role: "internal_team",
   team: undefined,
   investorId: undefined,
-  investorTier: undefined,
 };
 
-const investorGold: Identity = {
+const investor: Identity = {
   kind: "human",
   email: "investor@example.test",
   domain: "example.test",
   role: "external_investor",
   team: undefined,
   investorId: "investor_1",
-  investorTier: "gold",
 };
 
 const startup = (
@@ -52,7 +50,7 @@ describe("can()", () => {
     expect(can(internal, "ai.query")).toBe(true);
   });
   it("denies external investor from AI query", () => {
-    expect(can(investorGold, "ai.query")).toBe(false);
+    expect(can(investor, "ai.query")).toBe(false);
   });
   it("requires service token to have scope", () => {
     const svc: Identity = {
@@ -67,18 +65,15 @@ describe("can()", () => {
 });
 
 describe("canSeeStartup()", () => {
-  it("internal sees everything", () => {
+  it("internal sees everything including internal_only", () => {
     expect(canSeeStartup(internal, startup("internal_only"))).toBe(true);
+    expect(canSeeStartup(internal, startup("shared_with_investors"))).toBe(true);
   });
-  it("gold investor sees gold and below", () => {
-    expect(canSeeStartup(investorGold, startup("silver"))).toBe(true);
-    expect(canSeeStartup(investorGold, startup("gold"))).toBe(true);
-  });
-  it("gold investor cannot see platinum", () => {
-    expect(canSeeStartup(investorGold, startup("platinum"))).toBe(false);
+  it("investor sees shared_with_investors startups", () => {
+    expect(canSeeStartup(investor, startup("shared_with_investors"))).toBe(true);
   });
   it("investor cannot see internal_only", () => {
-    expect(canSeeStartup(investorGold, startup("internal_only"))).toBe(false);
+    expect(canSeeStartup(investor, startup("internal_only"))).toBe(false);
   });
 });
 
@@ -93,11 +88,11 @@ describe("canSeeDeal()", () => {
     visibilityTier: "internal_only",
   };
   it("blocks external investor from internal_only deal", () => {
-    expect(canSeeDeal(investorGold, baseDeal)).toBe(false);
+    expect(canSeeDeal(investor, baseDeal)).toBe(false);
   });
   it("allows external investor on shared deal", () => {
     expect(
-      canSeeDeal(investorGold, { ...baseDeal, visibilityTier: "shared_with_investors" }),
+      canSeeDeal(investor, { ...baseDeal, visibilityTier: "shared_with_investors" }),
     ).toBe(true);
   });
 });
@@ -113,9 +108,9 @@ describe("canSeeNote()", () => {
     source: { system: "hubspot", externalId: "1", url: undefined },
   });
   it("hides internal/confidential from external", () => {
-    expect(canSeeNote(investorGold, note("internal"))).toBe(false);
-    expect(canSeeNote(investorGold, note("confidential"))).toBe(false);
-    expect(canSeeNote(investorGold, note("investor_visible"))).toBe(true);
+    expect(canSeeNote(investor, note("internal"))).toBe(false);
+    expect(canSeeNote(investor, note("confidential"))).toBe(false);
+    expect(canSeeNote(investor, note("investor_visible"))).toBe(true);
   });
   it("hides confidential from non-admin internals", () => {
     expect(canSeeNote(internal, note("confidential"))).toBe(false);
@@ -135,16 +130,16 @@ describe("canSeeSignalForInvestor()", () => {
   };
   it("allows investor that owns the portfolio company", () => {
     expect(
-      canSeeSignalForInvestor(investorGold, signal, new Set(["portfolio_1"])),
+      canSeeSignalForInvestor(investor, signal, new Set(["portfolio_1"])),
     ).toBe(true);
   });
   it("blocks investor that does not own the portfolio company", () => {
-    expect(canSeeSignalForInvestor(investorGold, signal, new Set([]))).toBe(false);
+    expect(canSeeSignalForInvestor(investor, signal, new Set([]))).toBe(false);
   });
   it("blocks any investor on internal_only signal", () => {
     expect(
       canSeeSignalForInvestor(
-        investorGold,
+        investor,
         { ...signal, visibilityTier: "internal_only" },
         new Set(["portfolio_1"]),
       ),

@@ -27,6 +27,7 @@ import { createSqliteSignalStore } from "./storage/sqliteSignalStore.js";
 import { createPgSignalStore } from "./storage/pgSignalStore.js";
 import { createPgCoreStore } from "./storage/pgCoreStore.js";
 import { createDb } from "./storage/pgClient.js";
+import { runPgMigrations } from "./storage/pgMigrations.js";
 import { createGuardianRegistry } from "./services/signalHub/accountGuardian.js";
 import { createEntityResolver } from "./services/signalHub/resolver.js";
 import { createSignalQueue } from "./services/signalHub/queue.js";
@@ -37,11 +38,13 @@ import { registerHealthRoutes } from "./api/routes/health.js";
 import { registerMeRoutes } from "./api/routes/me.js";
 import { registerAiRoutes } from "./api/routes/ai.js";
 import { registerSocietyRoutes } from "./api/routes/society.js";
-import { registerInternalRoutes } from "./api/routes/internal.js";
+import {
+  registerAdminRoutes,
+  registerInternalRoutes,
+} from "./api/routes/internal.js";
 import { registerConnectorRoutes } from "./api/routes/connectors.js";
 import { registerSignalRoutes } from "./api/routes/signals.js";
 import { registerSignalsWebhookRoutes } from "./api/routes/signalsWebhook.js";
-import { registerAdminRoutes } from "./api/routes/admin.js";
 
 export const buildServer = async (
   config: AppConfig,
@@ -84,6 +87,7 @@ export const buildServer = async (
   const pgDb = config.database.url ? createDb(config.database.url) : undefined;
   let coreStore: Awaited<ReturnType<typeof createPgCoreStore>> | undefined;
   if (pgDb) {
+    await runPgMigrations(pgDb);
     coreStore = await createPgCoreStore(pgDb);
     app.log.info("CoreStore (Postgres) initialised");
   }
@@ -196,16 +200,27 @@ export const buildServer = async (
   let syncScheduler: ReturnType<typeof createSyncScheduler> | undefined;
   if (coreStore) {
     const logger = app.log as unknown as Logger;
-    syncScheduler = createSyncScheduler({
-      store: coreStore,
-      connectors: httpConnectors,
-      logger,
-    });
+    syncScheduler = createSyncScheduler(
+      {
+        store: coreStore,
+        connectors: httpConnectors,
+        logger,
+      },
+      pgDb!,
+      coreStore,
+      { overlapGraceMinutes: config.sync.overlapGraceMinutes },
+    );
     syncScheduler.start();
   }
 
   app.addHook("onClose", async () => {
     syncScheduler?.stop();
+    if (coreStore) {
+      const failed = await coreStore.failAllRunningSyncRuns("replica_shutdown");
+      if (failed > 0) {
+        app.log.warn({ failed }, "marked_running_sync_runs_failed_on_shutdown");
+      }
+    }
     signalQueue.stop();
     await pgDb?.end();
   });

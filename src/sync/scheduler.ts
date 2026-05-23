@@ -1,4 +1,11 @@
 import type { SyncWorker, SyncWorkerDeps } from "./types.js";
+import type { Db } from "../storage/pgClient.js";
+import type { CoreStore } from "../storage/coreStore.js";
+import {
+  SYNC_SCHEDULER_LOCK_KEY,
+  releaseAdvisoryLock,
+  tryAdvisoryLock,
+} from "../storage/pgAdvisoryLock.js";
 import {
   hubspotStartupsWorker,
   hubspotActivityWorker,
@@ -10,7 +17,6 @@ import {
 } from "./monday.js";
 import { driveBoardPacksWorker } from "./drive.js";
 
-// Run order matters: startups before activity, portfolio before board packs.
 const ALL_WORKERS: SyncWorker[] = [
   hubspotStartupsWorker,
   mondayPortfolioWorker,
@@ -20,8 +26,12 @@ const ALL_WORKERS: SyncWorker[] = [
   driveBoardPacksWorker,
 ];
 
-const FULL_SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 min
-const STARTUP_DELAY_MS = 10 * 1000; // 10 s initial delay before first run
+const FULL_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+const STARTUP_DELAY_MS = 10 * 1000;
+
+export type SyncSchedulerOptions = {
+  overlapGraceMinutes: number;
+};
 
 export type SyncScheduler = {
   start(): void;
@@ -29,21 +39,49 @@ export type SyncScheduler = {
   runNow(dataset: string): Promise<void>;
 };
 
-export const createSyncScheduler = (deps: SyncWorkerDeps): SyncScheduler => {
+export const createSyncScheduler = (
+  deps: SyncWorkerDeps,
+  db: Db,
+  store: CoreStore,
+  options: SyncSchedulerOptions,
+): SyncScheduler => {
   let startupTimer: ReturnType<typeof setTimeout> | undefined;
   let intervalTimer: ReturnType<typeof setInterval> | undefined;
   let running = false;
 
+  const withLeaderLock = async (fn: () => Promise<void>): Promise<void> => {
+    if (await store.hasRecentRunningSyncRun(options.overlapGraceMinutes)) {
+      deps.logger.debug(
+        { graceMinutes: options.overlapGraceMinutes },
+        "sync_scheduler_skipped_recent_running",
+      );
+      return;
+    }
+
+    const acquired = await tryAdvisoryLock(db, SYNC_SCHEDULER_LOCK_KEY);
+    if (!acquired) {
+      deps.logger.debug("sync_scheduler_skipped_not_leader");
+      return;
+    }
+    try {
+      await fn();
+    } finally {
+      await releaseAdvisoryLock(db, SYNC_SCHEDULER_LOCK_KEY);
+    }
+  };
+
   const runAll = async (): Promise<void> => {
     if (running) return;
-    running = true;
-    try {
-      for (const worker of ALL_WORKERS) {
-        await worker.run(deps);
+    await withLeaderLock(async () => {
+      running = true;
+      try {
+        for (const worker of ALL_WORKERS) {
+          await worker.run(deps);
+        }
+      } finally {
+        running = false;
       }
-    } finally {
-      running = false;
-    }
+    });
   };
 
   return {
@@ -71,7 +109,9 @@ export const createSyncScheduler = (deps: SyncWorkerDeps): SyncScheduler => {
     async runNow(dataset: string): Promise<void> {
       const worker = ALL_WORKERS.find((w) => w.dataset === dataset);
       if (!worker) throw new Error(`Unknown sync dataset: ${dataset}`);
-      await worker.run(deps);
+      await withLeaderLock(async () => {
+        await worker.run(deps);
+      });
     },
   };
 };

@@ -56,8 +56,7 @@ function mapDealStatus(stageId: string): Deal["status"] {
 }
 
 function mapVisibilityTier(lifecycle: string | null | undefined): Startup["visibilityTier"] {
-  if (lifecycle === "customer") return "gold";
-  if (lifecycle === "opportunity") return "bronze";
+  if (lifecycle === "customer") return "shared_with_investors";
   return "internal_only";
 }
 

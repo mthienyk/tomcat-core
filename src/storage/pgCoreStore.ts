@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { Db } from "./pgClient.js";
 import type {
@@ -26,9 +23,8 @@ import type {
   NoteSensitivity,
   EventVisibility,
 } from "../domain/entities.js";
-import type { Role, InvestorTier } from "../domain/identity.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import type { Role } from "../domain/identity.js";
+import type { ClubTier } from "../domain/entities.js";
 
 const now = (): string => new Date().toISOString();
 
@@ -161,7 +157,7 @@ const mapInvestor = (r: InvestorRow): Investor => ({
   id: r.id,
   name: r.name,
   email: r.email ?? undefined,
-  tier: r.tier as InvestorTier,
+  tier: r.tier as ClubTier,
   sectorsOfInterest: r.sectors_of_interest,
   portfolioCompanyIds: r.portfolio_company_ids,
 });
@@ -259,11 +255,6 @@ const mapUser = (r: UserRow): UserRecord => ({
 // --- Store factory ---
 
 export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
-  for (const file of ["pg_002_core.sql", "pg_003_identity.sql"]) {
-    const sql = readFileSync(join(__dirname, "migrations", file), "utf-8");
-    await db.unsafe(sql);
-  }
-
   return {
     // --- Startups ---
     async upsertStartup(s: Startup): Promise<void> {
@@ -617,6 +608,33 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
         limit 1
       `;
       return rows[0] ? mapSyncRun(rows[0]) : undefined;
+    },
+
+    async failAllRunningSyncRuns(errorMessage: string): Promise<number> {
+      const finishedAt = now();
+      const rows = await db<{ id: string }[]>`
+        update sync_runs set
+          finished_at = ${finishedAt},
+          status = 'failed',
+          error_message = ${errorMessage}
+        where status = 'running'
+        returning id
+      `;
+      return rows.length;
+    },
+
+    async hasRecentRunningSyncRun(withinMinutes: number): Promise<boolean> {
+      const cutoff = new Date(Date.now() - withinMinutes * 60_000).toISOString();
+      const rows = await db<{ id: string }[]>`
+        select id from sync_runs
+        where status = 'running' and started_at >= ${cutoff}
+        limit 1
+      `;
+      return rows.length > 0;
+    },
+
+    async ping(): Promise<void> {
+      await db`select 1`;
     },
 
     // --- Freshness ---

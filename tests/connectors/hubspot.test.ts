@@ -62,7 +62,7 @@ describe("createHttpHubspotConnector", () => {
         name: "Aistos",
         sectors: ["deeptech"],
         stage: "seed",
-        visibilityTier: "gold",
+        visibilityTier: "shared_with_investors",
       });
       expect(startups[0]?.country).toBeUndefined();
     });
@@ -122,7 +122,7 @@ describe("createHttpHubspotConnector", () => {
       const [startup] = await hs.listStartups();
       expect(startup.sectors).toEqual(["other"]);
       expect(startup.stage).toBe("unknown");
-      expect(startup.visibilityTier).toBe("bronze");
+      expect(startup.visibilityTier).toBe("internal_only");
     });
 
     it("wraps HTTP errors as ConnectorFailed (502)", async () => {

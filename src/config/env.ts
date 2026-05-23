@@ -77,6 +77,7 @@ const EnvSchema = z.object({
   LLM_DEFAULT_MODEL: z.string().default("claude-sonnet-4-6"),
   CORS_ALLOWED_ORIGINS: z.string().optional(),
   DATABASE_URL: z.string().optional(),
+  SYNC_OVERLAP_GRACE_MINUTES: z.coerce.number().int().positive().default(20),
 });
 
 export type RawEnv = z.infer<typeof EnvSchema>;
@@ -122,6 +123,9 @@ export type AppConfig = {
   };
   database: {
     url: string | undefined;
+  };
+  sync: {
+    overlapGraceMinutes: number;
   };
 };
 
@@ -179,6 +183,9 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     },
     database: {
       url: parsed.DATABASE_URL,
+    },
+    sync: {
+      overlapGraceMinutes: parsed.SYNC_OVERLAP_GRACE_MINUTES,
     },
   };
 };

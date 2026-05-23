@@ -191,7 +191,6 @@ export const createServiceTokenResolver = (
           role: role as Role,
           team,
           investorId,
-          investorTier: undefined,
         };
       }
 

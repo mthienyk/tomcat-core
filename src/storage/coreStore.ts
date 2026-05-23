@@ -89,6 +89,9 @@ export interface CoreStore {
   ): Promise<void>;
   failSyncRun(id: string, errorMessage: string): Promise<void>;
   getLatestSyncRun(dataset: string): Promise<SyncRun | undefined>;
+  failAllRunningSyncRuns(errorMessage: string): Promise<number>;
+  hasRecentRunningSyncRun(withinMinutes: number): Promise<boolean>;
+  ping(): Promise<void>;
 
   // Freshness
   getFreshness(dataset: string): Promise<DatasetFreshness>;

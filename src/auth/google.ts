@@ -62,7 +62,6 @@ export const createGoogleHumanResolver = (
         role,
         team,
         investorId: undefined,
-        investorTier: undefined,
       };
     },
   };

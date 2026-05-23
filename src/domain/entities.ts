@@ -25,15 +25,18 @@ export type Startup = {
   stage: Stage;
   country: string | undefined;
   description: string | undefined;
-  visibilityTier: "bronze" | "silver" | "gold" | "platinum" | "internal_only";
+  visibilityTier: "internal_only" | "shared_with_investors";
   sources: SourceRef[];
 };
+
+// Tier names intentionally kept open — to be confirmed with Jeremy before locking in the enum.
+export type ClubTier = string;
 
 export type Investor = {
   id: string;
   name: string;
   email: string | undefined;
-  tier: "bronze" | "silver" | "gold" | "platinum";
+  tier: ClubTier;
   sectorsOfInterest: Sector[];
   portfolioCompanyIds: string[];
 };

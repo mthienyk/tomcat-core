@@ -20,11 +20,6 @@ export type Action =
   | "internal.read"
   | "admin.write";
 
-const TIER_ORDER: Record<
-  "bronze" | "silver" | "gold" | "platinum",
-  number
-> = { bronze: 1, silver: 2, gold: 3, platinum: 4 };
-
 export const can = (id: Identity, action: Action): boolean => {
   if (id.kind === "service") {
     if (!hasScope(id, action)) return false;
@@ -52,8 +47,7 @@ export const canSeeStartup = (id: Identity, startup: Startup): boolean => {
   const human = effectiveHuman(id);
   if (human && isInternalRole(human.role)) return true;
   if (startup.visibilityTier === "internal_only") return false;
-  if (!human || !human.investorTier) return false;
-  return TIER_ORDER[human.investorTier] >= TIER_ORDER[startup.visibilityTier];
+  return human !== undefined;
 };
 
 export const canSeeDeal = (id: Identity, deal: Deal): boolean => {
