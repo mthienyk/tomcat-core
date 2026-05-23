@@ -113,7 +113,7 @@ jobs:
           SCW_DEFAULT_REGION: ${{ secrets.SCW_DEFAULT_REGION }}
         run: |
           DOMAIN="$(scw container container get "$SCW_CONTAINER_ID" region="$SCW_DEFAULT_REGION" -o json \
-            | python3 -c "import json,sys; print(json.load(sys.stdin).get('domain_name',''))")"
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('public_endpoint') or d.get('domain_name') or '').removeprefix('https://'))")"
           URL="https://${DOMAIN}/health/readiness"
           echo "GET $URL"
           for i in $(seq 1 6); do
