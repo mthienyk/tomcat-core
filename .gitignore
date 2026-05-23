@@ -11,6 +11,8 @@ tomcat-ai-backend-*.json
 *.log
 .DS_Store
 coverage/
+.env.secrets
+scripts/scaleway/.infra-state.env
 .vscode/
 .idea/
 

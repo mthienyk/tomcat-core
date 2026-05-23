@@ -24,12 +24,13 @@ COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/storage/migrations ./dist/storage/migrations
 
 # Signal Hub SQLite store lives here when SIGNAL_STORE_DRIVER=sqlite
 RUN mkdir -p .data
 
 ENV NODE_ENV=production
-ENV PORT=4000
-EXPOSE 4000
+ENV PORT=8080
+EXPOSE 8080
 
 CMD ["node", "dist/index.js"]

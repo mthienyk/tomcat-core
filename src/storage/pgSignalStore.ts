@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Db } from "./pgClient.js";
 import type {
   SignalStore,
@@ -16,8 +13,6 @@ import type {
   UnipileAccountState,
   UnipileAccountStatusEvent,
 } from "../domain/signalHub.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const now = (): string => new Date().toISOString();
 
@@ -110,12 +105,6 @@ const mapStatusEvent = (r: StatusEventRow): UnipileAccountStatusEvent => ({
 });
 
 export const createPgSignalStore = async (db: Db): Promise<SignalStore> => {
-  const migration = readFileSync(
-    join(__dirname, "migrations", "pg_001_signal_hub.sql"),
-    "utf-8",
-  );
-  await db.unsafe(migration);
-
   return {
     async addWatched(input: AddWatchedInput): Promise<WatchedEntity> {
       const createdAt = now();

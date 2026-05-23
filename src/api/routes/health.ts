@@ -54,7 +54,19 @@ export const registerHealthRoutes = (
 
   if (!store) return;
 
-  app.get("/health/readiness", async () => {
+  app.get("/health/readiness", async (_req, reply) => {
+    try {
+      await store.ping();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return reply.status(503).send({
+        status: "unavailable",
+        database: "error",
+        detail,
+        ts: new Date().toISOString(),
+      });
+    }
+
     const freshness = await store.listFreshness();
     const datasets = freshness.map((f) => ({
       dataset: f.dataset,
@@ -65,6 +77,7 @@ export const registerHealthRoutes = (
     const allHealthy = datasets.length > 0 && datasets.every((d) => d.healthy);
     return {
       status: allHealthy ? "ready" : "syncing",
+      database: "ok",
       ts: new Date().toISOString(),
       datasets,
     };
