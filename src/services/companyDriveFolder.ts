@@ -99,6 +99,19 @@ const inferPurposeMatch = (
   return undefined;
 };
 
+const scoreFolderPath = (path: string, purpose: DriveFolderPurpose): number => {
+  if (purpose !== "bp_inputs") return 0;
+  const haystack = normalizeKey(path);
+  let score = 0;
+  if (/portfolio|liste startups|suivi de participation|accompagnement/.test(haystack)) {
+    score += 25;
+  }
+  if (/pulse|comit[eé]|cambon|reporting kpi|investissement - corpo/.test(haystack)) {
+    score -= 20;
+  }
+  return score;
+};
+
 const scoreFolder = (
   folder: DriveFolderRef,
   purpose: DriveFolderPurpose,
@@ -247,28 +260,31 @@ export const buildCompanyDriveFolderService = (deps: {
         });
       }
 
-      const rankedFolders = [...rawFolders]
-        .map((folder) => ({
-          folder,
-          score: scoreFolder(folder, purpose),
-        }))
-        .sort((left, right) => {
-          if (right.score !== left.score) return right.score - left.score;
-          return right.folder.modifiedTime.localeCompare(
-            left.folder.modifiedTime,
-          );
-        })
-        .slice(0, folderLimit);
+      const scoredFolders = await Promise.all(
+        rawFolders.map(async (folder) => {
+          const path = await connectors.drive.resolveItemPath(folder.driveFolderId);
+          return {
+            folder,
+            path,
+            score: scoreFolder(folder, purpose) + scoreFolderPath(path, purpose),
+          };
+        }),
+      );
 
-      const folderCandidates: DriveFolderCandidate[] = await Promise.all(
-        rankedFolders.map(async ({ folder }) => ({
+      scoredFolders.sort((left, right) => {
+        if (right.score !== left.score) return right.score - left.score;
+        return right.folder.modifiedTime.localeCompare(left.folder.modifiedTime);
+      });
+
+      const folderCandidates: DriveFolderCandidate[] = scoredFolders
+        .slice(0, folderLimit)
+        .map(({ folder, path }) => ({
           driveFolderId: folder.driveFolderId,
           name: folder.name,
-          path: await connectors.drive.resolveItemPath(folder.driveFolderId),
+          path,
           purposeMatch: inferPurposeMatch(folder.name),
           modifiedTime: folder.modifiedTime,
-        })),
-      );
+        }));
 
       let primaryFolder: DriveFolderCandidate | null = null;
       if (purpose === "company_root") {

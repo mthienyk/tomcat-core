@@ -13,6 +13,7 @@ const MIGRATION_FILES = [
   "pg_003_identity.sql",
   "pg_004_mcp_oauth.sql",
   "pg_005_sync_engine.sql",
+  "pg_006_board_packs_mime.sql",
 ] as const;
 
 export const runPgMigrations = async (db: Db): Promise<void> => {

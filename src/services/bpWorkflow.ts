@@ -10,8 +10,11 @@ import {
 } from "../domain/mcpToolOutput.js";
 import { BpFinancementTabDraftSchema } from "../playbooks/bp/template-schema.js";
 import type { BpWorkflowMode } from "../playbooks/bp/template-schema.js";
-import { rankDriveTokens, type DriveTokenCandidate } from "./entityResolution.js";
-import { listDriveFilesForTokens } from "./driveTokenLookup.js";
+import type { DriveTokenCandidate } from "./entityResolution.js";
+import {
+  assertDriveFileInCompanyScope,
+  listRankedDriveFilesForTokens,
+} from "./driveCompanyFiles.js";
 import {
   classifyBpFilename,
   inferBpWorkflowMode,
@@ -26,6 +29,7 @@ import {
   parseFounderDebtTab,
   readWorkbookFromBuffer,
   resolveDebtSourceTab,
+  workbookHasDebtSourceTab,
 } from "./bpSpreadsheet.js";
 import type { SocietyService } from "./society.js";
 
@@ -75,14 +79,35 @@ export const buildBpWorkflowService = (deps: {
     driveTokens: DriveTokenCandidate[] | undefined,
     titleContains: string | undefined,
   ) => {
-    const driveTokensTried = rankDriveTokens(portfolioCompanyId, driveTokens ?? []);
-    const lookup = await listDriveFilesForTokens(connectors.drive, driveTokensTried);
-    let files = lookup?.files ?? [];
-    if (titleContains?.trim()) {
-      const needle = titleContains.trim().toLowerCase();
-      files = files.filter((f) => f.title.toLowerCase().includes(needle));
-    }
-    return { files, driveTokenUsed: lookup?.token ?? driveTokensTried[0] ?? portfolioCompanyId };
+    const ranked = await listRankedDriveFilesForTokens(
+      connectors.drive,
+      portfolioCompanyId,
+      driveTokens,
+      titleContains,
+    );
+    return ranked;
+  };
+
+  const hasBpInputSignals = (classifiedFiles: ClassifiedDriveFile[]): boolean => {
+    const summaryClasses = new Set([
+      "founder_bp_xlsx",
+      "founder_bp_other",
+      "tomcat_labeled",
+      "payroll_input",
+      "debt_input",
+    ]);
+    return classifiedFiles.some((file) => summaryClasses.has(file.classification));
+  };
+
+  const shouldSuggestDebtDraft = (input: {
+    mode: BpWorkflowMode;
+    founderBpFile: AssembleCompanyFinancePackData["founderBpFile"];
+    debtInputCount: number;
+  }): boolean => {
+    if (input.mode !== "transform" && input.mode !== "hybrid") return false;
+    if (!input.founderBpFile) return false;
+    if (input.debtInputCount > 0) return true;
+    return workbookHasDebtSourceTab(input.founderBpFile.sheetNames);
   };
 
   const assembleCompanyFinancePack = async (
@@ -99,11 +124,31 @@ export const buildBpWorkflowService = (deps: {
     const warnings: ToolWarning[] = [];
     const citations: Citation[] = [];
 
-    const { files } = await listScopedDriveFiles(
+    const { files, listedBeforeFilter } = await listScopedDriveFiles(
       portfolioCompanyId,
       args.driveTokens,
       args.titleContains,
     );
+
+    if (listedBeforeFilter === 0) {
+      warnings.push({
+        code: ToolWarningCodes.DRIVE_INDEX_MISS,
+        message:
+          "No Drive files matched any drive token for this company. HubSpot-only companies may need Monday portfolio indexing, or filenames may not contain the company name.",
+        mitigation:
+          "Confirm resolve_entity driveTokens, check Drive folder naming, or retry after drive.boardPacks sync.",
+      });
+    } else if (
+      args.titleContains?.trim() &&
+      files.length === 0 &&
+      listedBeforeFilter > 0
+    ) {
+      warnings.push({
+        code: "DRIVE_TITLE_FILTER_EMPTY",
+        message: `titleContains « ${args.titleContains.trim()} » matched 0 of ${String(listedBeforeFilter)} Drive files.`,
+        mitigation: 'Retry with a broader filter such as "BP" or "Business plan".',
+      });
+    }
 
     const limit = Math.min(Math.max(args.documentLimit ?? 40, 5), 80);
     const classifiedFiles: ClassifiedDriveFile[] = files.slice(0, limit).map((file) => {
@@ -191,6 +236,18 @@ export const buildBpWorkflowService = (deps: {
       analysis: classifiedFiles.filter((f) => f.classification === "analysis").length,
     };
 
+    const founderBpOtherCount = classifiedFiles.filter(
+      (f) => f.classification === "founder_bp_other",
+    ).length;
+    if (founderBpOtherCount > 0 && inputSummary.founderBp === 0) {
+      warnings.push({
+        code: ToolWarningCodes.BP_FOUND_NON_SPREADSHEET,
+        message: `${String(founderBpOtherCount)} BP-like file(s) detected but not as parseable spreadsheets (PDF, Doc, or Google file without extension in title).`,
+        mitigation:
+          "Ask for an .xlsx export or use read_company_document_excerpt on the listed file.",
+      });
+    }
+
     const { mode, rationale } = inferBpWorkflowMode({
       founderBpCount: inputSummary.founderBp,
       payrollInputCount: inputSummary.payroll,
@@ -199,7 +256,7 @@ export const buildBpWorkflowService = (deps: {
       canonicalTabTotal,
     });
 
-    if (inputSummary.founderBp === 0 && inputSummary.payroll === 0 && inputSummary.debt === 0) {
+    if (!hasBpInputSignals(classifiedFiles)) {
       warnings.push({
         code: ToolWarningCodes.DRIVE_INPUTS_INCOMPLETE,
         message: "No BP, payroll, or debt inputs detected in the scanned Drive files.",
@@ -222,13 +279,13 @@ export const buildBpWorkflowService = (deps: {
         reason: "Confirm workflow mode and Financement 1:1 benchmark thresholds.",
       },
     ];
-    if ((mode === "transform" || mode === "hybrid") && founderBpFile) {
+    if (shouldSuggestDebtDraft({ mode, founderBpFile, debtInputCount: inputSummary.debt })) {
       nextSuggestedTools.push({
         toolName: "draft_bp_tab_debt",
         reason: "First end-to-end slice: map founder Debt tab to Financement.",
         arguments: {
           portfolioCompanyId,
-          founderBpFileId: founderBpFile.driveFileId,
+          founderBpFileId: founderBpFile!.driveFileId,
         },
       });
     }
@@ -245,27 +302,13 @@ export const buildBpWorkflowService = (deps: {
     return wrapToolOutput(data, { citations, warnings, nextSuggestedTools });
   };
 
-  const assertFileInCompanyScope = async (
-    portfolioCompanyId: string,
-    driveFileId: string,
-  ) => {
-    const allowed = await connectors.drive.listBoardPacksForCompany(portfolioCompanyId);
-    const file = allowed.find((f) => f.driveFileId === driveFileId);
-    if (!file) {
-      throw BadRequest(
-        "driveFileId is not listed for this portfolio company. Call assemble_company_finance_pack or list_company_documents first.",
-        { driveFileId, portfolioCompanyId },
-      );
-    }
-    return file;
-  };
-
   const draftBpTabDebt = async (
     caller: Identity,
     args: {
       portfolioCompanyId?: string;
       founderBpFileId: string;
       sourceTab?: string;
+      driveTokens?: DriveTokenCandidate[];
     },
   ) => {
     const portfolioCompanyId = await resolvePortfolioCompanyId(caller, args);
@@ -273,9 +316,11 @@ export const buildBpWorkflowService = (deps: {
     const citations: Citation[] = [];
     const mappingNotes: string[] = [];
 
-    const fileMeta = await assertFileInCompanyScope(
+    const fileMeta = await assertDriveFileInCompanyScope(
+      connectors.drive,
       portfolioCompanyId,
       args.founderBpFileId,
+      args.driveTokens,
     );
 
     if (!isSpreadsheetFile(fileMeta.title, fileMeta.mimeType)) {

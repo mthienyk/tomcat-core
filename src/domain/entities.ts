@@ -86,6 +86,7 @@ export type BoardPack = {
   title: string;
   driveFileId: string;
   createdAt: ISODate;
+  mimeType: string | undefined;
 };
 
 export type SignalKind =

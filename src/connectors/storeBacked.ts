@@ -1,5 +1,6 @@
 import type { Connectors } from "./registry.js";
 import type { CoreStore, DatasetFreshness } from "../storage/coreStore.js";
+import { inferMimeTypeFromTitle } from "../services/driveDocuments.js";
 
 const FRESHNESS_TTL_MS = 5_000;
 
@@ -73,17 +74,35 @@ export const buildStoreBackedConnectors = (
 
     drive: {
       listBoardPacksForCompany: async (portfolioCompanyId) => {
+        const mapPack = (pack: {
+          id: string;
+          title: string;
+          driveFileId: string;
+          createdAt: string;
+          mimeType?: string | undefined;
+        }) => {
+          const resolvedMime =
+            pack.mimeType ?? inferMimeTypeFromTitle(pack.title);
+          return {
+            id: pack.id,
+            title: pack.title,
+            driveFileId: pack.driveFileId,
+            createdAt: pack.createdAt,
+            ...(resolvedMime !== undefined ? { mimeType: resolvedMime } : {}),
+          };
+        };
+
         const f = await getFreshness("drive.boardPacks");
         if (!f.healthy) {
           return live.drive.listBoardPacksForCompany(portfolioCompanyId);
         }
-        const packs = await store.listBoardPacksForCompany(portfolioCompanyId);
-        return packs.map(({ id, title, driveFileId, createdAt }) => ({
-          id,
-          title,
-          driveFileId,
-          createdAt,
-        }));
+
+        const cached = await store.listBoardPacksForCompany(portfolioCompanyId);
+        if (cached.length === 0) {
+          return live.drive.listBoardPacksForCompany(portfolioCompanyId);
+        }
+
+        return cached.map(mapPack);
       },
       // Folder structure is not cached — always fetches live.
       listCompanyFolders: (portfolioCompanyId) =>

@@ -105,6 +105,7 @@ type BoardPackRow = {
   title: string;
   drive_file_id: string;
   created_at: string;
+  mime_type: string | null;
 };
 
 type PortfolioSignalRow = {
@@ -247,6 +248,7 @@ const mapBoardPack = (r: BoardPackRow): BoardPack => ({
   title: r.title,
   driveFileId: r.drive_file_id,
   createdAt: r.created_at,
+  mimeType: r.mime_type ?? undefined,
 });
 
 const mapPortfolioSignal = (r: PortfolioSignalRow): PortfolioSignal => ({
@@ -525,15 +527,16 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       const t = now();
       await db`
         insert into board_packs
-          (id, portfolio_company_id, title, drive_file_id, created_at, synced_at)
+          (id, portfolio_company_id, title, drive_file_id, created_at, mime_type, synced_at)
         values (
-          ${p.id}, ${p.portfolioCompanyId}, ${p.title}, ${p.driveFileId}, ${p.createdAt}, ${t}
+          ${p.id}, ${p.portfolioCompanyId}, ${p.title}, ${p.driveFileId}, ${p.createdAt}, ${p.mimeType ?? null}, ${t}
         )
         on conflict (id) do update set
           portfolio_company_id = excluded.portfolio_company_id,
           title = excluded.title,
           drive_file_id = excluded.drive_file_id,
           created_at = excluded.created_at,
+          mime_type = excluded.mime_type,
           synced_at = excluded.synced_at
       `;
     },

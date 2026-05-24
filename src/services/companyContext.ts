@@ -17,6 +17,7 @@ import {
   clampCrmLimit,
 } from "./crmActivityLimits.js";
 import { prepareDriveDocumentList } from "./driveDocuments.js";
+import { assertDriveFileInCompanyScope } from "./driveCompanyFiles.js";
 import { listDriveFilesForTokens } from "./driveTokenLookup.js";
 import {
   buildDriveTokens,
@@ -548,20 +549,11 @@ export const buildCompanyContextService = (deps: {
       const warnings: string[] = [];
       await society.ensurePortfolioCompanyInScope(caller, args.portfolioCompanyId);
 
-      const allowedFiles = await connectors.drive.listBoardPacksForCompany(
+      const fileMeta = await assertDriveFileInCompanyScope(
+        connectors.drive,
         args.portfolioCompanyId,
+        args.driveFileId,
       );
-
-      const fileMeta = allowedFiles.find((file) =>
-        file.driveFileId === args.driveFileId,
-      );
-
-      if (!fileMeta) {
-        throw BadRequest(
-          "driveFileId is not listed for this portfolio company. Call list_company_documents first.",
-          { driveFileId: args.driveFileId, portfolioCompanyId: args.portfolioCompanyId },
-        );
-      }
 
       const MIN_WINDOW = 512;
       const MAX_WINDOW = 120_000;

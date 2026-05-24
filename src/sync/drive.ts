@@ -22,6 +22,7 @@ export const driveBoardPacksWorker: SyncWorker = {
             title: pack.title,
             driveFileId: pack.driveFileId,
             createdAt: pack.createdAt,
+            mimeType: pack.mimeType,
           });
         }
         count += packs.length;

@@ -54,6 +54,10 @@ export const resolveDebtSourceTab = (
   return sheetNames.find((n) => /debt|loan|financement/i.test(n));
 };
 
+export const workbookHasDebtSourceTab = (
+  sheetNames: readonly string[],
+): boolean => resolveDebtSourceTab(sheetNames) !== undefined;
+
 const isLoanHeaderLabel = (label: string): boolean => {
   const lower = label.toLowerCase();
   if (LOAN_BLOCK_SKIP.has(lower)) return false;
