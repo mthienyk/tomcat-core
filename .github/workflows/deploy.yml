@@ -32,6 +32,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install Scaleway CLI
         run: |
           curl -sSL "https://github.com/scaleway/scaleway-cli/releases/download/v2.56.0/scaleway-cli_2.56.0_linux_amd64" -o scw
@@ -58,9 +60,19 @@ jobs:
           default_zone: fr-par-1
           EOF
 
+      - name: Resolve container ID
+        id: container
+        env:
+          SCW_DEFAULT_REGION: ${{ secrets.SCW_DEFAULT_REGION }}
+          SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
+        run: |
+          CONTAINER_ID="$(bash scripts/scaleway/resolve-container-id.sh)"
+          echo "container_id=${CONTAINER_ID}" >> "$GITHUB_OUTPUT"
+          echo "Resolved container_id=${CONTAINER_ID}"
+
       - name: Update container image
         env:
-          SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
+          SCW_CONTAINER_ID: ${{ steps.container.outputs.container_id }}
           IMAGE: ${{ needs.build.outputs.image }}
           SCW_DEFAULT_REGION: ${{ secrets.SCW_DEFAULT_REGION }}
         run: |
@@ -81,6 +93,8 @@ jobs:
     needs: deploy
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install Scaleway CLI
         run: |
           curl -sSL "https://github.com/scaleway/scaleway-cli/releases/download/v2.56.0/scaleway-cli_2.56.0_linux_amd64" -o scw
@@ -107,9 +121,18 @@ jobs:
           default_zone: fr-par-1
           EOF
 
+      - name: Resolve container ID
+        id: container
+        env:
+          SCW_DEFAULT_REGION: ${{ secrets.SCW_DEFAULT_REGION }}
+          SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
+        run: |
+          CONTAINER_ID="$(bash scripts/scaleway/resolve-container-id.sh)"
+          echo "container_id=${CONTAINER_ID}" >> "$GITHUB_OUTPUT"
+
       - name: Smoke test readiness
         env:
-          SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
+          SCW_CONTAINER_ID: ${{ steps.container.outputs.container_id }}
           SCW_DEFAULT_REGION: ${{ secrets.SCW_DEFAULT_REGION }}
         run: |
           DOMAIN="$(scw container container get "$SCW_CONTAINER_ID" region="$SCW_DEFAULT_REGION" -o json \

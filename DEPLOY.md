@@ -8,7 +8,7 @@
 | `SCW_SECRET_KEY` | Secret Key IAM |
 | `SCW_DEFAULT_PROJECT_ID` | `e0af5962-2c29-45f5-8921-b5a8f9976f4d` |
 | `SCW_DEFAULT_REGION` | `fr-par` |
-| `SCW_CONTAINER_ID` | Output of `deploy-container.sh` (`CONTAINER_ID=...`) |
+| `SCW_CONTAINER_ID` | Optional fallback if name lookup fails (`tomcat-core` / `api`). Prefer `scripts/scaleway/.infra-state.env` after manual deploy. |
 
 Application secrets are injected as encrypted container env vars at deploy time. Keep a local `.env.secrets` (gitignored); `deploy-container.sh` reads it directly. `seed-secrets.sh` mirrors the same values into Scaleway Secret Manager for backup/reference.
 
