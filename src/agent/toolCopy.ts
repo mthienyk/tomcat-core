@@ -461,6 +461,32 @@ export const TOOL_DESCRIPTIONS = {
     approvalRequired: false,
   }),
 
+  list_portfolio_companies: meta({
+    summary:
+      "Monday portfolio annuaire: all portcos visible to the caller with HubSpot linkage and Drive index counts.",
+    whenToUse: [
+      "List Tomcat portcos (~8) before picking one for board prep, BP, or digest",
+      "Check HubSpot link status and Drive file coverage across the portfolio",
+      "External investor: see only portcos in their tier",
+    ],
+    inputTips: ["No arguments — returns the full visible portco set (small, enumerable)"],
+    output: [
+      "total, companies[] with portfolioCompanyId, canonicalName, startupId, matchedSources, driveIndexedFileCount",
+    ],
+    nextTools: [
+      { name: "resolve_entity", when: "Pick a portco for driveTokens and cross-system ids" },
+      { name: "search_startups", when: "CRM funnel discovery by sector or name (not portcos)" },
+      { name: "generate_portfolio_signal_digest", when: "Weekly portfolio highlights" },
+    ],
+    limitations: [
+      "Monday portcos only — not the 1700+ HubSpot CRM funnel (use search_startups)",
+      "driveIndexedFileCount reflects board_packs cache, not live Drive fallback",
+    ],
+    sources: ["monday", "hubspot", "drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
   read_bp_playbook: meta({
     summary:
       "Tomcat BP methodology: canonical template structure, three workflow modes "

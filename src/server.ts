@@ -19,6 +19,7 @@ import { buildSocietyService } from "./services/society.js";
 import { buildStartupsService } from "./services/startups.js";
 import { buildCompanyContextService } from "./services/companyContext.js";
 import { buildBpWorkflowService } from "./services/bpWorkflow.js";
+import { buildPortfolioCompaniesService } from "./services/portfolioCompanies.js";
 import { buildAiService } from "./services/ai.js";
 import { createPgCoreStore } from "./storage/pgCoreStore.js";
 import { createDb } from "./storage/pgClient.js";
@@ -219,6 +220,10 @@ export const buildServer = async (
   });
 
   const bpWorkflow = buildBpWorkflowService({ connectors, society });
+  const portfolioCompanies = buildPortfolioCompaniesService({
+    connectors,
+    society,
+  });
 
   // --- Sync scheduler (when CoreStore available) ---
   let syncScheduler: ReturnType<typeof createSyncScheduler> | undefined;
@@ -298,6 +303,7 @@ export const buildServer = async (
         boardBrief,
         portfolioSignalDigest,
         bpWorkflow,
+        portfolioCompanies,
       },
       auditor,
       auth,
@@ -353,6 +359,7 @@ export const buildServer = async (
       boardBrief,
       portfolioSignalDigest,
       bpWorkflow,
+      portfolioCompanies,
       auditor,
     });
     registerAiRoutes(app, auth, ai);

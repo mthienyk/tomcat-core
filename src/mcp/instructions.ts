@@ -48,6 +48,7 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 | Latest deck / pitch | resolve_entity → find_latest_deck |
 | Board prep (explicit) | resolve_entity → prepare_board_brief → read_company_document_excerpt |
 | Company 360 | resolve_entity → build_company_360_context |
+| Portfolio annuaire | list_portfolio_companies → resolve_entity |
 ${signalHubWorkflowRow}
 | Competitive context | find_competitive_history → read_startup_notes on top matches |
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |

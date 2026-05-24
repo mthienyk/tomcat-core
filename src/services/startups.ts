@@ -122,19 +122,19 @@ export const buildStartupsService = (deps: { connectors: Connectors }) => {
         const found = visible.find((s) => s.id === query.startupId);
         return found ? [found] : [];
       }
+
+      let filtered = visible;
       if (query.startupName) {
         const needle = normalize(query.startupName);
-        return visible
-          .filter((s) => normalize(s.name).includes(needle))
-          .slice(0, limit);
-      }
-      if (query.sector) {
+        filtered = filtered.filter((s) => normalize(s.name).includes(needle));
+      } else if (query.sector) {
         const sector = query.sector.toLowerCase();
-        return visible
-          .filter((s) => s.sectors.some((sec) => sec.toLowerCase() === sector))
-          .slice(0, limit);
+        filtered = filtered.filter((s) =>
+          s.sectors.some((sec) => sec.toLowerCase() === sector),
+        );
       }
-      return visible.slice(0, limit);
+
+      return filtered.slice(0, limit);
     },
 
     findSimilar: async (

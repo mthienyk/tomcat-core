@@ -22,6 +22,7 @@ import type { AgentToolAccess } from "../domain/agentTools.js";
 import { formatToolDescription } from "../mcp/toolMeta.js";
 import { TOOL_DESCRIPTIONS } from "./toolCopy.js";
 import type { BpWorkflowService } from "../services/bpWorkflow.js";
+import type { PortfolioCompaniesService } from "../services/portfolioCompanies.js";
 import { readBpPlaybook } from "../services/bpPlaybook.js";
 
 export type AgentToolServices = {
@@ -36,6 +37,7 @@ export type AgentToolServices = {
   companyActivitySummary: CompanyActivitySummaryService;
   findLatestDeck: FindLatestDeckService;
   bpWorkflow: BpWorkflowService;
+  portfolioCompanies: PortfolioCompaniesService;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -248,6 +250,8 @@ const ListPortfolioContextArgs = z
     eventsLimit: z.number().int().positive().max(100).optional(),
   })
   .strict();
+
+const ListPortfolioCompaniesArgs = z.object({}).strict();
 
 const Company360SectionEnum = z.enum([
   "profile",
@@ -705,6 +709,19 @@ export const AGENT_TOOL_REGISTRY = [
         ctxOptions,
       );
     },
+  }),
+  defineAgentTool({
+    name: "list_portfolio_companies",
+    title: "List Portfolio Companies",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.list_portfolio_companies),
+
+    labels: ["portfolio", "monday", "directory"],
+    sources: ["monday", "hubspot", "drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: ListPortfolioCompaniesArgs,
+    execute: async ({ services, caller }) =>
+      services.portfolioCompanies.listPortfolioCompanies(caller),
   }),
   defineAgentTool({
     name: "build_company_360_context",

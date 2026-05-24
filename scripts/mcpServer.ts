@@ -15,6 +15,7 @@ import { buildCompanyActivitySummaryService } from "../src/services/companyActiv
 import { buildFindLatestDeckService } from "../src/services/findLatestDeck.js";
 import { buildCompanyDriveFolderService } from "../src/services/companyDriveFolder.js";
 import { buildBpWorkflowService } from "../src/services/bpWorkflow.js";
+import { buildPortfolioCompaniesService } from "../src/services/portfolioCompanies.js";
 import { buildBoardBriefService } from "../src/services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "../src/services/portfolioSignalDigest.js";
 import { bootstrapSignalHub } from "../src/services/signalHub/bootstrap.js";
@@ -82,6 +83,10 @@ const main = async (): Promise<void> => {
   });
 
   const bpWorkflow = buildBpWorkflowService({ connectors, society });
+  const portfolioCompanies = buildPortfolioCompaniesService({
+    connectors,
+    society,
+  });
 
   const services = {
     startups,
@@ -95,6 +100,7 @@ const main = async (): Promise<void> => {
     boardBrief,
     portfolioSignalDigest,
     bpWorkflow,
+    portfolioCompanies,
   };
   const auditor = createAuditor(logger);
   const resolveCaller = createMcpCallerResolver(config, coreStore);

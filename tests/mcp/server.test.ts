@@ -82,6 +82,9 @@ const fakeServices = (
       assembleCompanyFinancePack: vi.fn(),
       draftBpTabDebt: vi.fn(),
     },
+    portfolioCompanies: {
+      listPortfolioCompanies: vi.fn(),
+    },
   }) as unknown as AgentToolServices;
 
 const startConnectedClient = async (

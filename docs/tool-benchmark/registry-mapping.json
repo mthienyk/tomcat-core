@@ -6,7 +6,7 @@
     "briefs.build_board_prep": "prepare_board_brief",
     "briefs.build_company_360": "build_company_360_context",
     "crm.get_recent_activity": "list_company_crm_activity",
-    "crm.list_portfolio_companies": "list_portfolio_context",
+    "crm.list_portfolio_companies": "list_portfolio_companies",
     "crm.summarize_notes": "read_startup_notes",
     "crm.search_deals": "search_startups",
     "drive.search_company_docs": "list_company_documents",

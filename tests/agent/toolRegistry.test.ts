@@ -72,8 +72,12 @@ describe("agent tool registry", () => {
   });
 
   it("uses Zod strict objects for non-approval tools", () => {
+    const zeroArgTools = new Set([
+      "signal_hub_list_accounts",
+      "list_portfolio_companies",
+    ]);
     const withInputs = AGENT_TOOL_REGISTRY.filter(
-      (t) => !t.approvalRequired && t.name !== "signal_hub_list_accounts",
+      (t) => !t.approvalRequired && !zeroArgTools.has(t.name),
     );
     for (const tool of withInputs) {
       expect(tool.inputSchema).toBeInstanceOf(z.ZodObject);
