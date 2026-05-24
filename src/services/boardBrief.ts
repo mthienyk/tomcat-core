@@ -14,6 +14,7 @@ import { canSeeSignal } from "../permissions/policies.js";
 import type { SocietyService } from "./society.js";
 import type { StartupsService } from "./startups.js";
 import type { SignalHubService } from "./signalHub/index.js";
+import { filterSignalHubSuggestions } from "../agent/toolCatalog.js";
 import { prepareDriveDocumentList } from "./driveDocuments.js";
 
 export type PrepChecklistStatus = "ready" | "missing" | "review";
@@ -295,8 +296,9 @@ export const buildBoardBriefService = (deps: {
   startups: StartupsService;
   society: SocietyService;
   signalHub: SignalHubService;
+  signalHubEnabled: boolean;
 }) => {
-  const { connectors, startups, society, signalHub } = deps;
+  const { connectors, startups, society, signalHub, signalHubEnabled } = deps;
 
   const resolveCompany = async (
     caller: Identity,
@@ -445,11 +447,13 @@ export const buildBoardBriefService = (deps: {
           { limit: meetingsLimit },
         ),
         connectors.drive.listBoardPacksForCompany(company.portfolioCompanyId),
-        signalHub.listEvents(caller, {
-          startupId: company.startupId,
-          sinceIso: linkedInSinceIso,
-          limit: linkedInLimit,
-        }),
+        signalHubEnabled
+          ? signalHub.listEvents(caller, {
+              startupId: company.startupId,
+              sinceIso: linkedInSinceIso,
+              limit: linkedInLimit,
+            })
+          : Promise.resolve([]),
       ]);
 
       const visibleSignals = mondaySignalsRaw
@@ -600,14 +604,18 @@ export const buildBoardBriefService = (deps: {
           code: ToolWarningCodes.MONDAY_SIGNALS_EMPTY,
           message:
             "No Monday portfolio signals, CRM notes, Drive board packs, or LinkedIn signals for this company.",
-          mitigation: "Call signal_hub_recent_signals or resolve_company_drive_folder.",
+          mitigation: signalHubEnabled
+            ? "Call signal_hub_recent_signals or resolve_company_drive_folder."
+            : "Call resolve_company_drive_folder or list_company_documents.",
         });
       } else if (mondayEmpty) {
         warnings.push({
           code: ToolWarningCodes.MONDAY_SIGNALS_EMPTY,
           message:
             "Monday portfolio signals are empty; brief relies on CRM, Drive, and Signal Hub sources.",
-          mitigation: "Prefer signal_hub_recent_signals for LinkedIn-native activity.",
+          mitigation: signalHubEnabled
+            ? "Prefer signal_hub_recent_signals for LinkedIn-native activity."
+            : "Use CRM notes and Drive documents for board prep.",
         });
       }
 
@@ -642,7 +650,7 @@ export const buildBoardBriefService = (deps: {
         });
       }
 
-      if (mondayEmpty || recentLinkedInSignals.length === 0) {
+      if (signalHubEnabled && (mondayEmpty || recentLinkedInSignals.length === 0)) {
         nextSuggestedTools.push({
           toolName: "signal_hub_recent_signals",
           reason: "Refresh LinkedIn-native signals for board prep",
@@ -694,7 +702,10 @@ export const buildBoardBriefService = (deps: {
       return wrapToolOutput(data, {
         citations,
         warnings,
-        nextSuggestedTools,
+        nextSuggestedTools: filterSignalHubSuggestions(
+          nextSuggestedTools,
+          signalHubEnabled,
+        ),
       });
   };
 

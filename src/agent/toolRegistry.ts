@@ -61,6 +61,8 @@ type RegisteredAgentToolDefinition = Omit<
   execute: ToolHandler<unknown>;
 };
 
+export type { RegisteredAgentToolDefinition };
+
 const defineAgentTool = <TSchema extends z.ZodTypeAny>(
   tool: Omit<AgentToolDefinition<z.infer<TSchema>>, "inputSchema"> & {
     inputSchema: TSchema;
@@ -155,6 +157,21 @@ const FindLatestDeckArgs = z
     portfolioCompanyId: z.string().min(1).optional(),
     startupId: z.string().min(1).optional(),
     startupName: z.string().min(1).optional(),
+    driveTokens: z
+      .array(
+        z.object({
+          token: z.string().min(1),
+          source: z.enum([
+            "hubspot_name",
+            "monday_portfolio",
+            "name_token",
+            "parenthetical_alias",
+          ]),
+          confidence: z.number(),
+          matchReason: z.string(),
+        }),
+      )
+      .optional(),
     maxExcerptChars: z.number().int().positive().max(12_000).optional(),
     alternateLimit: z.number().int().positive().max(8).optional(),
   })
@@ -512,6 +529,7 @@ export const AGENT_TOOL_REGISTRY = [
         ...(args.startupName !== undefined
           ? { startupName: args.startupName }
           : {}),
+        ...(args.driveTokens !== undefined ? { driveTokens: args.driveTokens } : {}),
         ...(args.maxExcerptChars !== undefined
           ? { maxExcerptChars: args.maxExcerptChars }
           : {}),

@@ -3,14 +3,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Auditor } from "../audit/audit.js";
 import type { Identity } from "../domain/identity.js";
 import {
-  AGENT_TOOL_REGISTRY,
   executeRegisteredAgentTool,
   type AgentToolServices,
 } from "../agent/toolRegistry.js";
+import { listMcpAgentTools } from "../agent/toolCatalog.js";
 import type { CoreToolName } from "../domain/agent.js";
 import { CoreError } from "../errors/index.js";
 import { mcpNextActionForAuthError } from "../auth/authHints.js";
-import { MCP_SERVER_INSTRUCTIONS } from "./instructions.js";
+import { buildMcpServerInstructions } from "./instructions.js";
 
 export type McpAgentServerOptions = {
   name?: string;
@@ -18,6 +18,7 @@ export type McpAgentServerOptions = {
   services: AgentToolServices;
   resolveCaller: () => Promise<Identity>;
   auditor: Auditor;
+  signalHubEnabled?: boolean;
 };
 
 const inputShape = (schema: z.ZodTypeAny): ZodRawShape => {
@@ -114,10 +115,10 @@ export const buildMcpAgentServer = (
       name: options.name ?? "tomcat-core",
       version: options.version ?? "0.1.0",
     },
-    { instructions: MCP_SERVER_INSTRUCTIONS },
+    { instructions: buildMcpServerInstructions(options.signalHubEnabled ?? false) },
   );
 
-  for (const tool of AGENT_TOOL_REGISTRY) {
+  for (const tool of listMcpAgentTools(options.signalHubEnabled ?? false)) {
     const registeredSchema = tool.approvalRequired
       ? ({} as ZodRawShape)
       : inputShape(tool.inputSchema);

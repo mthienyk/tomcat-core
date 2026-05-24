@@ -130,6 +130,7 @@ payload = {
         "NODE_ENV": "production",
         "LOG_LEVEL": "info",
         "SIGNAL_STORE_DRIVER": "postgres",
+        "SIGNAL_HUB_ENABLED": "false",
         "ALLOW_MOCK_AUTH": "false",
         "CORS_ALLOWED_ORIGINS": cors,
         "SERVICE_CLIENTS": "society:society.read|society.write,team-mcp:ai.query|briefs.write",

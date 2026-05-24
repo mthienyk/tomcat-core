@@ -199,6 +199,14 @@ Each tool advertises its sources, access level and approval requirement in the
 description. Approval-required tools refuse to execute over MCP and emit an
 audit event.
 
+**Tool count:** 18 tools when `SIGNAL_HUB_ENABLED=false` (default), 27 when enabled.
+Signal Hub tools are hidden from MCP `tools/list` and orchestrator instructions until the flag is on.
+See [docs/mcp-work-status.md](./docs/mcp-work-status.md).
+
+**Entity resolution:** `resolve_entity` returns ranked candidates with `confidence` and
+`driveTokens[]` (Monday portfolio id, HubSpot name, parenthetical aliases like `(ex WENABI)`).
+Pass `driveTokens` to `find_latest_deck` for cross-system Drive folder names.
+
 Example Cursor config (remote):
 
 ```json
@@ -327,6 +335,9 @@ The tests cover:
 
 ## Signal Hub
 
+> **Default off:** set `SIGNAL_HUB_ENABLED=true` when Serper/Unipile are configured and the watchlist is ready.
+> MCP clients do not see `signal_hub_*` tools until then. HTTP routes under `/signals/*` remain available for admins.
+
 The Signal Hub captures public and private LinkedIn activity for tracked
 founders and companies, normalises it into a local append-only event log, and
 exposes it to the AI agent and MCP tools. No LinkedIn account is touched by the
@@ -435,6 +446,7 @@ Migration DDL runs at startup for both drivers. The `SignalStore` interface is t
 ### Environment variables
 
 ```
+SIGNAL_HUB_ENABLED=      # false (default) — hide MCP tools and skip ingest queue
 SERPER_API_KEY=           # Serper.dev key — public LinkedIn search via Google SERP
 UNIPILE_DSN=              # https://apiX.unipile.com:PORT (from Unipile dashboard)
 UNIPILE_API_KEY=          # Unipile API key

@@ -15,12 +15,20 @@ import {
 } from "./driveDocuments.js";
 import type { SocietyService } from "./society.js";
 import type { StartupsService } from "./startups.js";
+import { listDriveFilesForTokens } from "./driveTokenLookup.js";
+import {
+  buildDriveTokens,
+  rankDriveTokens,
+  type DriveTokenCandidate,
+} from "./entityResolution.js";
 
 export type FindLatestDeckData = {
   portfolioCompanyId: string;
   startupId: string | undefined;
   canonicalName: string | undefined;
-  driveTokenSource: "portfolio_company_id" | "startup_name";
+  driveTokenSource: "portfolio_company_id" | "startup_name" | "drive_token";
+  driveTokenUsed: string;
+  driveTokensTried: string[];
   deck: {
     driveFileId: string;
     title: string;
@@ -42,16 +50,17 @@ export type FindLatestDeckData = {
 const DEFAULT_EXCERPT_CHARS = 4_000;
 const MAX_EXCERPT_CHARS = 12_000;
 
-const resolveDriveToken = async (
+const resolveDriveTokenPlan = async (
   startups: StartupsService,
   caller: Identity,
   args: {
     portfolioCompanyId?: string;
     startupId?: string;
     startupName?: string;
+    driveTokens?: DriveTokenCandidate[];
   },
 ): Promise<{
-  portfolioCompanyId: string;
+  driveTokens: string[];
   startup: Startup | undefined;
   driveTokenSource: FindLatestDeckData["driveTokenSource"];
   warnings: ToolWarning[];
@@ -59,6 +68,7 @@ const resolveDriveToken = async (
   const warnings: ToolWarning[] = [];
 
   if (args.portfolioCompanyId) {
+    let startup: Startup | undefined;
     if (args.startupId || args.startupName) {
       const matches = await startups.searchStartups(
         caller,
@@ -68,16 +78,12 @@ const resolveDriveToken = async (
         },
         { limit: 1 },
       );
-      return {
-        portfolioCompanyId: args.portfolioCompanyId,
-        startup: matches[0],
-        driveTokenSource: "portfolio_company_id",
-        warnings,
-      };
+      startup = matches[0];
     }
+    const driveTokens = rankDriveTokens(args.portfolioCompanyId, args.driveTokens ?? []);
     return {
-      portfolioCompanyId: args.portfolioCompanyId,
-      startup: undefined,
+      driveTokens,
+      startup,
       driveTokenSource: "portfolio_company_id",
       warnings,
     };
@@ -101,15 +107,22 @@ const resolveDriveToken = async (
       );
     }
     const startup = matches[0]!;
-    warnings.push({
-      code: ToolWarningCodes.PORTFOLIO_LINK_MISSING,
-      message:
-        "Drive lookup uses the HubSpot startup name as folder token; Monday portfolio name may differ.",
-      mitigation:
-        "Pass portfolioCompanyId from resolve_entity or resolve_company_drive_folder when names diverge (e.g. KOMEET vs Wenabi).",
+    const inferredTokens = args.driveTokens ?? buildDriveTokens({
+      canonicalName: startup.name,
+      portfolioCompanyId: undefined,
     });
+    const driveTokens = rankDriveTokens(startup.name, inferredTokens);
+    if (driveTokens.length > 1) {
+      warnings.push({
+        code: ToolWarningCodes.PORTFOLIO_LINK_MISSING,
+        message:
+          "Drive lookup will try ranked name tokens (HubSpot name, Monday portfolio id, parenthetical aliases).",
+        mitigation:
+          "Pass portfolioCompanyId or driveTokens from resolve_entity when names diverge across systems.",
+      });
+    }
     return {
-      portfolioCompanyId: startup.name,
+      driveTokens,
       startup,
       driveTokenSource: "startup_name",
       warnings,
@@ -154,13 +167,15 @@ export const buildFindLatestDeckService = (deps: {
         startupName?: string;
         maxExcerptChars?: number;
         alternateLimit?: number;
+        driveTokens?: DriveTokenCandidate[];
       },
     ): Promise<ToolRunEnvelope<FindLatestDeckData>> => {
-      const resolved = await resolveDriveToken(startups, caller, args);
-      await society.ensurePortfolioCompanyInScope(
-        caller,
-        resolved.portfolioCompanyId,
-      );
+      const resolved = await resolveDriveTokenPlan(startups, caller, args);
+      const driveTokenUsed = resolved.driveTokens[0];
+      if (!driveTokenUsed) {
+        throw BadRequest("No Drive token candidates were resolved for this company.");
+      }
+      await society.ensurePortfolioCompanyInScope(caller, driveTokenUsed);
 
       const maxExcerptChars = Math.min(
         args.maxExcerptChars ?? DEFAULT_EXCERPT_CHARS,
@@ -168,9 +183,13 @@ export const buildFindLatestDeckService = (deps: {
       );
       const alternateLimit = Math.min(args.alternateLimit ?? 3, 8);
 
-      const raw = await connectors.drive.listBoardPacksForCompany(
-        resolved.portfolioCompanyId,
+      const lookup = await listDriveFilesForTokens(
+        connectors.drive,
+        resolved.driveTokens,
       );
+      const raw = lookup?.files ?? [];
+      const driveTokenUsedResolved = lookup?.token ?? driveTokenUsed;
+      await society.ensurePortfolioCompanyInScope(caller, driveTokenUsedResolved);
       const listings = raw.map((file) => ({
         driveFileId: file.driveFileId,
         title: file.title,
@@ -188,7 +207,15 @@ export const buildFindLatestDeckService = (deps: {
           message:
             "No Drive files indexed for this company token.",
           mitigation:
-            "Call resolve_company_drive_folder with the Monday portfolio name or a known alias.",
+            "Call resolve_company_drive_folder with a portfolio or alias token from resolve_entity.",
+        });
+      } else if (lookup && lookup.token !== resolved.driveTokens[0]) {
+        warnings.push({
+          code: ToolWarningCodes.PORTFOLIO_LINK_MISSING,
+          message:
+            `Drive files found under alternate token "${lookup.token}" (primary "${resolved.driveTokens[0]}" was empty).`,
+          mitigation:
+            "Reuse driveTokens from resolve_entity for downstream Drive reads.",
         });
       } else if (!primary) {
         warnings.push({
@@ -254,7 +281,7 @@ export const buildFindLatestDeckService = (deps: {
           toolName: "read_company_document_excerpt",
           reason: "Retry text extraction with a larger window",
           arguments: {
-            portfolioCompanyId: resolved.portfolioCompanyId,
+            portfolioCompanyId: driveTokenUsedResolved,
             driveFileId: primary.driveFileId,
             maxChars: maxExcerptChars,
           },
@@ -275,15 +302,20 @@ export const buildFindLatestDeckService = (deps: {
         nextSuggestedTools.push({
           toolName: "resolve_company_drive_folder",
           reason: "Browse the portfolio folder if the Drive token or deck search missed",
-          arguments: { portfolioCompanyId: resolved.portfolioCompanyId },
+          arguments: { portfolioCompanyId: driveTokenUsedResolved },
         });
       }
 
       const data: FindLatestDeckData = {
-        portfolioCompanyId: resolved.portfolioCompanyId,
+        portfolioCompanyId: driveTokenUsedResolved,
         startupId: resolved.startup?.id,
         canonicalName: resolved.startup?.name,
-        driveTokenSource: resolved.driveTokenSource,
+        driveTokenSource:
+          lookup && lookup.token !== resolved.driveTokens[0]
+            ? "drive_token"
+            : resolved.driveTokenSource,
+        driveTokenUsed: driveTokenUsedResolved,
+        driveTokensTried: resolved.driveTokens,
         deck: primary
           ? {
               driveFileId: primary.driveFileId,

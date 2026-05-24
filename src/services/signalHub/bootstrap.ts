@@ -95,7 +95,11 @@ export const bootstrapSignalHub = async (
     signalHub,
     store,
     guardians: guardianRegistry,
-    start: () => queue.start(),
+    start: () => {
+      if (options.config.signalHub.enabled) {
+        queue.start();
+      }
+    },
     stop: () => queue.stop(),
   };
 };

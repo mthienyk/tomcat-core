@@ -23,6 +23,7 @@ const baseProdConfig = (): AppConfig => ({
     mondayToken: undefined,
   },
   signalHub: {
+    enabled: false,
     serperApiKey: undefined,
     unipileDsn: undefined,
     unipileApiKey: undefined,

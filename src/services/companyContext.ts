@@ -17,14 +17,23 @@ import {
   clampCrmLimit,
 } from "./crmActivityLimits.js";
 import { prepareDriveDocumentList } from "./driveDocuments.js";
+import {
+  buildDriveTokens,
+  matchConfidence,
+  normalizeEntityKey,
+  tokenOverlapScore,
+  type DriveTokenCandidate,
+} from "./entityResolution.js";
 
-const normalizeKey = (value: string): string => value.trim().toLowerCase();
+const normalizeKey = normalizeEntityKey;
 
 export type ResolvedEntityCandidate = {
   canonicalName: string;
   startupId: string | undefined;
   portfolioCompanyId: string | undefined;
   matchedSources: ("hubspot" | "monday")[];
+  confidence: number;
+  driveTokens: DriveTokenCandidate[];
 };
 
 export type ResolveEntityOutput = {
@@ -105,10 +114,60 @@ export const buildCompanyContextService = (deps: {
   const derivePortfolioCompanyIdFromStartup = (
     startup: Startup,
     portfolio: PortfolioCompany[],
-  ): string | undefined =>
-    portfolio.find((p) =>
-      normalizeKey(p.startupId) === normalizeKey(startup.name),
-    )?.id;
+  ): string | undefined => {
+    let best: { id: string; score: number } | undefined;
+    for (const row of portfolio) {
+      const scores = [
+        matchConfidence(startup.name, row.startupId),
+        matchConfidence(startup.name, row.id),
+      ];
+      const score = Math.max(...scores.map((entry) => entry.confidence));
+      if (score < 0.45) continue;
+      if (!best || score > best.score) {
+        best = { id: row.id, score };
+      }
+    }
+    return best?.id;
+  };
+
+  const enrichCandidate = (
+    candidate: Omit<ResolvedEntityCandidate, "confidence" | "driveTokens">,
+    query: string,
+  ): ResolvedEntityCandidate => {
+    const scores = [
+      matchConfidence(query, candidate.canonicalName),
+      candidate.portfolioCompanyId
+        ? matchConfidence(query, candidate.portfolioCompanyId)
+        : { confidence: 0, reason: undefined },
+    ];
+    const confidence = Math.max(...scores.map((entry) => entry.confidence));
+    return {
+      ...candidate,
+      confidence,
+      driveTokens: buildDriveTokens({
+        canonicalName: candidate.canonicalName,
+        portfolioCompanyId: candidate.portfolioCompanyId,
+      }),
+    };
+  };
+
+  const findLinkedStartup = (
+    row: PortfolioCompany,
+    matches: Startup[],
+  ): Startup | undefined => {
+    for (const item of matches) {
+      if (normalizeKey(item.name) === normalizeKey(row.startupId)) {
+        return item;
+      }
+      const score = Math.max(
+        matchConfidence(item.name, row.id).confidence,
+        matchConfidence(item.name, row.startupId).confidence,
+        tokenOverlapScore(item.name, row.id),
+      );
+      if (score >= 0.45) return item;
+    }
+    return undefined;
+  };
 
   const listCompanyDocuments = async (
     caller: Identity,
@@ -243,10 +302,17 @@ export const buildCompanyContextService = (deps: {
         connectors.monday.listPortfolio(),
       ]);
 
-      const mondayMatches = portfolio.filter((row) =>
-        normalizeKey(row.id).includes(needle) ||
-        normalizeKey(row.startupId).includes(needle),
-      );
+      const mondayMatches = portfolio
+        .map((row) => ({
+          row,
+          score: Math.max(
+            matchConfidence(query, row.id).confidence,
+            matchConfidence(query, row.startupId).confidence,
+          ),
+        }))
+        .filter(({ score }) => score >= 0.45)
+        .sort((left, right) => right.score - left.score)
+        .map(({ row }) => row);
 
       const candidateById = new Map<string, ResolvedEntityCandidate>();
       const orderedKeys: string[] = [];
@@ -276,37 +342,45 @@ export const buildCompanyContextService = (deps: {
           ...candidate.matchedSources,
         ]);
         existing.matchedSources = [...mergedSources];
+        existing.confidence = Math.max(existing.confidence, candidate.confidence);
+        const tokenByKey = new Map(
+          [...existing.driveTokens, ...candidate.driveTokens].map((entry) => [
+            normalizeKey(entry.token),
+            entry,
+          ]),
+        );
+        existing.driveTokens = [...tokenByKey.values()].sort(
+          (left, right) => right.confidence - left.confidence,
+        );
       };
 
       for (const s of hubSpotMatches) {
         const portfolioId = derivePortfolioCompanyIdFromStartup(s, portfolio);
-        recordCandidate(keyForHubspot(s), {
+        recordCandidate(keyForHubspot(s), enrichCandidate({
           canonicalName: s.name,
           startupId: s.id,
           portfolioCompanyId: portfolioId,
           matchedSources: portfolioId ? ["hubspot", "monday"] : ["hubspot"],
-        });
+        }, query));
       }
 
       for (const row of mondayMatches) {
-        const linkedStartup = hubSpotMatches.find(
-          (item) => normalizeKey(item.name) === normalizeKey(row.startupId),
-        );
+        const linkedStartup = findLinkedStartup(row, hubSpotMatches);
         if (linkedStartup) {
-          recordCandidate(keyForHubspot(linkedStartup), {
+          recordCandidate(keyForHubspot(linkedStartup), enrichCandidate({
             canonicalName: linkedStartup.name,
             startupId: linkedStartup.id,
             portfolioCompanyId: row.id,
             matchedSources: ["hubspot", "monday"],
-          });
+          }, query));
           continue;
         }
-        recordCandidate(keyForMonday(row), {
+        recordCandidate(keyForMonday(row), enrichCandidate({
           canonicalName: row.startupId,
           startupId: undefined,
           portfolioCompanyId: row.id,
           matchedSources: ["monday"],
-        });
+        }, query));
       }
 
       let candidates = orderedKeys

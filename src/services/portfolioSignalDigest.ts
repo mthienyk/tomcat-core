@@ -14,6 +14,7 @@ import { canSeeNote, canSeeSignalForInvestor } from "../permissions/policies.js"
 import type { SocietyService } from "./society.js";
 import type { StartupsService } from "./startups.js";
 import type { SignalHubService } from "./signalHub/index.js";
+import { filterSignalHubSuggestions } from "../agent/toolCatalog.js";
 
 const MS_PER_DAY = 86_400_000;
 const NOTE_EXCERPT_MAX = 280;
@@ -159,8 +160,9 @@ export const buildPortfolioSignalDigestService = (deps: {
   startups: StartupsService;
   society: SocietyService;
   signalHub: SignalHubService;
+  signalHubEnabled: boolean;
 }) => {
-  const { connectors, startups, society, signalHub } = deps;
+  const { connectors, startups, society, signalHub, signalHubEnabled } = deps;
 
   const resolveScope = async (
     caller: Identity,
@@ -258,12 +260,18 @@ export const buildPortfolioSignalDigestService = (deps: {
         watchedForMapping,
       ] = await Promise.all([
         connectors.monday.listSignals(sinceDays),
-        signalHub.listEvents(caller, {
-          sinceIso,
-          limit: MAX_LINKEDIN_EVENTS,
-        }),
-        signalHub.listWatched(caller, args.priority),
-        signalHub.listWatched(caller, undefined),
+        signalHubEnabled
+          ? signalHub.listEvents(caller, {
+              sinceIso,
+              limit: MAX_LINKEDIN_EVENTS,
+            })
+          : Promise.resolve([]),
+        signalHubEnabled
+          ? signalHub.listWatched(caller, args.priority)
+          : Promise.resolve([]),
+        signalHubEnabled
+          ? signalHub.listWatched(caller, undefined)
+          : Promise.resolve([]),
       ]);
 
       const watchedById = new Map(
@@ -474,7 +482,7 @@ export const buildPortfolioSignalDigestService = (deps: {
         (row) => row.factCount > 0,
       ).length;
 
-      if (watchedForScope.length === 0) {
+      if (signalHubEnabled && watchedForScope.length === 0) {
         warnings.push({
           code: ToolWarningCodes.WATCHLIST_EMPTY,
           message: "Signal Hub watchlist is empty for this priority filter.",
@@ -500,7 +508,7 @@ export const buildPortfolioSignalDigestService = (deps: {
         });
       }
 
-      if (linkedInEvents.length >= MAX_LINKEDIN_EVENTS) {
+      if (signalHubEnabled && linkedInEvents.length >= MAX_LINKEDIN_EVENTS) {
         warnings.push({
           code: ToolWarningCodes.LINKEDIN_EVENTS_TRUNCATED,
           message:
@@ -518,24 +526,26 @@ export const buildPortfolioSignalDigestService = (deps: {
       }
 
       const nextSuggestedTools: SuggestedToolCall[] = [];
-      const topActive = outputCompanies.find((row) => row.factCount > 0);
-      if (topActive?.startupId) {
-        nextSuggestedTools.push({
-          toolName: "signal_hub_recent_signals",
-          reason: "Drill into LinkedIn signals for the most active portco",
-          arguments: { startupId: topActive.startupId },
-        });
-        nextSuggestedTools.push({
-          toolName: "prepare_board_brief",
-          reason: "Cross-check digest highlights with a full board brief",
-          arguments: { portfolioCompanyId: topActive.portfolioCompanyId },
-        });
-      } else if (watchedForScope[0]) {
-        nextSuggestedTools.push({
-          toolName: "signal_hub_request_refresh",
-          reason: "Queue a fresh public LinkedIn poll when the digest is empty",
-          arguments: { watchedId: watchedForScope[0].id },
-        });
+      if (signalHubEnabled) {
+        const topActive = outputCompanies.find((row) => row.factCount > 0);
+        if (topActive?.startupId) {
+          nextSuggestedTools.push({
+            toolName: "signal_hub_recent_signals",
+            reason: "Drill into LinkedIn signals for the most active portco",
+            arguments: { startupId: topActive.startupId },
+          });
+          nextSuggestedTools.push({
+            toolName: "prepare_board_brief",
+            reason: "Cross-check digest highlights with a full board brief",
+            arguments: { portfolioCompanyId: topActive.portfolioCompanyId },
+          });
+        } else if (watchedForScope[0]) {
+          nextSuggestedTools.push({
+            toolName: "signal_hub_request_refresh",
+            reason: "Queue a fresh public LinkedIn poll when the digest is empty",
+            arguments: { watchedId: watchedForScope[0].id },
+          });
+        }
       }
 
       const data: PortfolioSignalDigestData = {
@@ -565,7 +575,14 @@ export const buildPortfolioSignalDigestService = (deps: {
       return wrapToolOutput(data, {
         citations,
         warnings,
-        ...(nextSuggestedTools.length > 0 ? { nextSuggestedTools } : {}),
+        ...(nextSuggestedTools.length > 0
+          ? {
+              nextSuggestedTools: filterSignalHubSuggestions(
+                nextSuggestedTools,
+                signalHubEnabled,
+              ),
+            }
+          : {}),
       });
     },
   };

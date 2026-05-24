@@ -2,10 +2,21 @@
  * Orchestrator instructions exposed via MCP ServerOptions.instructions.
  * Keep in sync with docs/mcp-use-cases.md §16.
  */
-export const MCP_SERVER_INSTRUCTIONS = `# Tomcat Core MCP
+export const buildMcpServerInstructions = (
+  signalHubEnabled: boolean,
+): string => {
+  const signalHubWorkflowRow = signalHubEnabled
+    ? "| Friday News / portfolio digest | generate_portfolio_signal_digest → signal_hub_recent_signals (drill-down) |"
+    : "| Friday News / portfolio digest | generate_portfolio_signal_digest (Monday + CRM; LinkedIn when Signal Hub is enabled) |";
+
+  const signalHubConnectorBlock = signalHubEnabled
+    ? `- **Signal Hub** — LinkedIn watchlist and ingested signals (async refresh via jobId)`
+    : "";
+
+  return `# Tomcat Core MCP
 
 You are connected to Tomcat Core (tomcat.eu): startups, portfolio companies,
-CRM activity, Drive documents, and LinkedIn signals for the investment team.
+CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""} for the investment team.
 
 ## Mandatory rules
 
@@ -14,7 +25,7 @@ CRM activity, Drive documents, and LinkedIn signals for the investment team.
    ask the user to pick a candidate. Never guess an entity id.
 
 2. **Cite sources** — Every synthesis must reference tool output (HubSpot note ids,
-   Drive file ids, signal events). Do not invent CRM facts.
+   Drive file ids${signalHubEnabled ? ", signal events" : ""}). Do not invent CRM facts.
 
 3. **Raw material vs publication** — Tools return structured raw data or editable drafts.
    Do not publish LinkedIn posts, newsletters, or HubSpot notes without explicit user approval.
@@ -37,7 +48,7 @@ CRM activity, Drive documents, and LinkedIn signals for the investment team.
 | Latest deck / pitch | resolve_entity → find_latest_deck |
 | Board prep (explicit) | resolve_entity → prepare_board_brief → read_company_document_excerpt |
 | Company 360 | resolve_entity → build_company_360_context |
-| Friday News / portfolio digest | generate_portfolio_signal_digest → signal_hub_recent_signals (drill-down) |
+${signalHubWorkflowRow}
 | Competitive context | find_competitive_history → read_startup_notes on top matches |
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |
 
@@ -46,10 +57,14 @@ CRM activity, Drive documents, and LinkedIn signals for the investment team.
 - **HubSpot** — CRM notes, deals, meetings
 - **Google Drive** — board packs, financial docs (Google Docs/Slides/Sheets text export)
 - **Monday** — portfolio directory (company names / scope). Not a digest signal source.
-- **Signal Hub** — LinkedIn watchlist and ingested signals (async refresh via jobId)
+${signalHubConnectorBlock}
 
 ## Output shape
 
 Many tools return a \`ToolRunEnvelope\`: \`data\`, \`citations\`, \`warnings\`, optional
 \`nextSuggestedTools\`, optional \`run\` for async work. Prefer fields inside \`data\` for facts.
 `;
+};
+
+/** @deprecated Use buildMcpServerInstructions(signalHubEnabled) */
+export const MCP_SERVER_INSTRUCTIONS = buildMcpServerInstructions(true);

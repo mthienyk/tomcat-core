@@ -14,6 +14,7 @@ export type McpHttpRouteDeps = {
   auditor: Auditor;
   auth: AuthMiddleware;
   resourceMetadataBaseUrl?: string;
+  signalHubEnabled?: boolean;
 };
 
 const buildWwwAuthenticate = (
@@ -89,6 +90,7 @@ export const handleMcpHttpRequest = async (
     services: deps.services,
     resolveCaller: async () => identity,
     auditor: deps.auditor,
+    signalHubEnabled: deps.signalHubEnabled ?? false,
   });
 
   reply.hijack();

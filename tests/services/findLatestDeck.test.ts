@@ -92,9 +92,6 @@ describe("findLatestDeck service", () => {
     expect(result.data.deck?.excerpt).toContain("traction");
     expect(result.data.alternates).toEqual([]);
     expect(result.citations[0]?.source.externalId).toBe("deck_1");
-    expect(result.warnings.some((w) => w.code === "PORTFOLIO_LINK_MISSING")).toBe(
-      true,
-    );
     expect(
       result.nextSuggestedTools?.some(
         (tool) => tool.toolName === "summarize_company_activity",

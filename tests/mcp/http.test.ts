@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { buildServer } from "../../src/server.js";
 import type { AppConfig } from "../../src/config/env.js";
-import { AGENT_TOOL_NAMES } from "../../src/agent/toolRegistry.js";
+import { listMcpAgentTools } from "../../src/agent/toolCatalog.js";
 
 const mockIdentityHeader = JSON.stringify({
   kind: "human",
@@ -49,6 +49,7 @@ const testConfig = (): AppConfig => ({
     storeDriver: "sqlite",
     storePath: ".data/test-mcp-http.db",
     unipileDailyQuota: 60,
+    enabled: false,
   },
   llm: {
     anthropicApiKey: undefined,
@@ -135,7 +136,7 @@ describe("MCP HTTP /mcp", () => {
     await client.connect(transport);
     const list = await client.listTools();
     expect(list.tools.map((tool) => tool.name).sort()).toEqual(
-      [...AGENT_TOOL_NAMES].sort(),
+      listMcpAgentTools(false).map((tool) => tool.name).sort(),
     );
     await client.close();
   });

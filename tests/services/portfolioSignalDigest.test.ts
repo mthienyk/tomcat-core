@@ -90,6 +90,7 @@ const buildService = (overrides?: {
   portfolio?: PortfolioCompany[];
   startups?: Startup[];
   investor?: Investor;
+  signalHubEnabled?: boolean;
 }) => {
   const allWatched = overrides?.watchedEntities ?? [];
   const society = {
@@ -134,6 +135,7 @@ const buildService = (overrides?: {
     startups: startups as unknown as StartupsService,
     society: society as unknown as SocietyService,
     signalHub: signalHub as unknown as SignalHubService,
+    signalHubEnabled: overrides?.signalHubEnabled ?? false,
   });
 
   return { service, society, startups, signalHub, connectors };
@@ -142,6 +144,7 @@ const buildService = (overrides?: {
 describe("portfolioSignalDigest service", () => {
   it("aggregates Monday, Signal Hub, and CRM notes per company in ToolRunEnvelope", async () => {
     const { service } = buildService({
+      signalHubEnabled: true,
       signals: [
         {
           id: "sig_1",
@@ -221,6 +224,7 @@ describe("portfolioSignalDigest service", () => {
 
   it("maps LinkedIn via full watchlist when priority filter excludes the watched entity", async () => {
     const { service } = buildService({
+      signalHubEnabled: true,
       linkedInEvents: [
         {
           id: "evt_warm",
@@ -356,6 +360,7 @@ describe("portfolioSignalDigest service", () => {
 
   it("warns on unlinked LinkedIn signals and empty watchlist", async () => {
     const { service } = buildService({
+      signalHubEnabled: true,
       linkedInEvents: [
         {
           id: "evt_orphan",
@@ -392,6 +397,7 @@ describe("portfolioSignalDigest service", () => {
 
   it("hides unlinked LinkedIn excerpts from external investors", async () => {
     const { service } = buildService({
+      signalHubEnabled: true,
       linkedInEvents: [
         {
           id: "evt_orphan",
@@ -439,7 +445,7 @@ describe("portfolioSignalDigest service", () => {
       contentHash: `hash_${String(index)}`,
     }));
 
-    const { service } = buildService({ linkedInEvents });
+    const { service } = buildService({ signalHubEnabled: true, linkedInEvents });
 
     const result = await service.generatePortfolioSignalDigest(internalCaller, {});
 

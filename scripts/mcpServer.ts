@@ -70,12 +70,14 @@ const main = async (): Promise<void> => {
     startups,
     society,
     signalHub: signalHubStack.signalHub,
+    signalHubEnabled: config.signalHub.enabled,
   });
   const portfolioSignalDigest = buildPortfolioSignalDigestService({
     connectors,
     startups,
     society,
     signalHub: signalHubStack.signalHub,
+    signalHubEnabled: config.signalHub.enabled,
   });
 
   const services = {
@@ -97,6 +99,7 @@ const main = async (): Promise<void> => {
     services,
     resolveCaller,
     auditor,
+    signalHubEnabled: config.signalHub.enabled,
   });
 
   const shutdown = (): void => {

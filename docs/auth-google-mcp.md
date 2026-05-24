@@ -7,21 +7,35 @@ How Tomcat Core authenticates humans (`@tomcat.eu`) for the HTTP API and the loc
 | Surface | Auth | Role source |
 | --- | --- | --- |
 | Core HTTP API (prod) | `Authorization: Bearer <google-id-token>` | Postgres `users` (auto-provision `@tomcat.eu`) |
-| **MCP HTTP remote (prod)** | `Authorization: Bearer <google-id-token>` on `/mcp` | Postgres `users` (auto-provision `@tomcat.eu`) |
+| **MCP HTTP remote (prod)** | **MCP OAuth** (Cursor native) or Bearer Google manuel | Postgres `users` + tokens opaques MCP OAuth |
 | Core HTTP API (service) | `X-Service-Token` JWT | Registered clients + optional `act_as` |
 | MCP stdio (local dev) | Google session in `.secrets/` | DB if `DATABASE_URL` set, else dev placeholder |
 | Dev only | `X-Mock-Identity` header | Disabled when `NODE_ENV=production` |
 
-Google OAuth uses a **Desktop client** (CLI / MCP). Society will add a separate **Web client** later.
+Google OAuth uses two clients:
+
+| Client | Usage |
+| --- | --- |
+| **Desktop** | CLI (`npm run auth:google`), stdio MCP, vérification Bearer Google manuel |
+| **Web** | MCP OAuth proxy (`/oauth/*`) pour Cursor remote |
 
 ## One-time GCP setup
+
+### Desktop client (CLI + stdio)
 
 1. OAuth consent screen: **Internal**, domain `tomcat.eu`
 2. Credentials → **Desktop app** → note Client ID
 3. Set `GOOGLE_OAUTH_CLIENT_ID` in `.env` and `.env.secrets`
 4. Download client JSON → `.secrets/google-oauth-desktop.json` (gitignored)
 
-Prod deploy injects `GOOGLE_OAUTH_CLIENT_ID` and `ALLOWED_GOOGLE_DOMAINS` via `deploy-container.sh`.
+### Web client (MCP OAuth remote)
+
+1. Credentials → **Web application**
+2. Authorized redirect URIs: include `{OAUTH_ISSUER_URL}/oauth/callback/google`
+3. Set `GOOGLE_OAUTH_WEB_CLIENT_ID` + secret in `.env.secrets`
+4. Set `OAUTH_ISSUER_URL` to the public API base (ex. Scaleway HTTPS URL)
+
+Prod deploy injects both client IDs, `OAUTH_ISSUER_URL`, and `ALLOWED_GOOGLE_DOMAINS` via `deploy-container.sh`.
 
 ## Daily commands
 
@@ -55,16 +69,32 @@ ID tokens expire in ~1 hour. Refresh runs automatically on MCP tool calls and at
 
 ## Cursor MCP config
 
-### Remote (recommended for the team)
+### Remote OAuth (recommended)
 
-Uses prod CoreStore + connectors on Scaleway. First `@tomcat.eu` login auto-creates an `internal_team` row in `users`.
+Cursor gère login + refresh. **Ne pas** ajouter de header `Authorization` statique dans `mcp.json` (un vieux token peut prendre le dessus sur OAuth).
+
+```json
+{
+  "mcpServers": {
+    "tomcat-core": {
+      "url": "https://tomcatcore91c5e290-api.functions.fnc.fr-par.scw.cloud/mcp"
+    }
+  }
+}
+```
+
+Au premier connect : login Google `@tomcat.eu` via le flow MCP OAuth intégré.
+
+Découverte : `GET /.well-known/oauth-protected-resource` et `GET /.well-known/oauth-authorization-server`.
+
+### Remote Bearer manuel (fallback)
+
+Utile pour debug ou clients sans OAuth MCP.
 
 ```bash
 npm run auth:google
 npm run auth:token
 ```
-
-Paste the snippet into `~/.cursor/mcp.json`, or configure manually:
 
 ```json
 {
@@ -99,9 +129,9 @@ Before first use: `npm run auth:google`.
 
 **Enforced today**
 
-- Google ID token verified cryptographically (`aud`, `email_verified`, `hd=tomcat.eu`)
+- MCP remote `/mcp` accepts opaque OAuth tokens (broker) or Google ID tokens (manual Bearer)
+- MCP OAuth resolver runs before Google JWT resolver (opaque tokens are not JWTs)
 - Prod + Postgres: first `@tomcat.eu` login auto-provisions `internal_team` in `users`; revoked users stay blocked (`active=false`)
-- MCP remote `/mcp` requires the same Bearer token and `ai.query` permission (internal roles)
 - MCP re-resolves identity before **each tool call** (stdio: token refresh from local session)
 - Approval-required MCP tools blocked on MCP surfaces
 - Mock auth forbidden in production
@@ -118,7 +148,8 @@ Before first use: `npm run auth:google`.
 | Surface | Token source | Expiry handling |
 | --- | --- | --- |
 | **stdio local** | `.secrets/google-oauth-session.json` | Auto-refresh via refresh token before each tool call |
-| **HTTP remote (Cursor)** | Static `Authorization` header in `mcp.json` | Manual: `npm run auth:token` then update header (~1h) |
+| **HTTP remote OAuth** | Tokens opaques émis par `/oauth/token` | Cursor refresh automatique |
+| **HTTP remote Bearer** | Static `Authorization` header in `mcp.json` | Manual: `npm run auth:token` (~1h) |
 
 First `@tomcat.eu` Google login auto-creates `internal_team` in Postgres. Re-login does **not** restore access after `active=false`.
 
@@ -154,8 +185,9 @@ Or `POST /internal/users` as an existing admin.
 
 | Symptom | Fix |
 | --- | --- |
+| OAuth OK in UI but `/mcp` → 401 | Retirer `headers.Authorization` stale de `mcp.json` |
 | MCP fails at start (stdio) | `npm run auth:status` then `npm run auth:google` |
-| Remote MCP → 401 | Re-run `npm run auth:token` and update Cursor headers |
+| Remote MCP → 401 (Bearer mode) | Re-run `npm run auth:token` and update Cursor headers |
 | Remote MCP → 403 | User inactive in `users`, non-internal role, or service token (humans only) |
 | Remote MCP works once then 401 | Google ID token expired (~1h); re-run `npm run auth:token` |
 | Remote MCP → 500 after auth | Check Scaleway logs; tool/connectors issue inside MCP handler |

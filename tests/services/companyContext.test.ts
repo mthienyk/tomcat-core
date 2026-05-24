@@ -143,7 +143,7 @@ describe("companyContext.resolveEntity", () => {
     const { service } = buildBundle({
       startups: [
         startup({ id: "s1", name: "Atlas" }),
-        startup({ id: "s2", name: "Atlas Labs" }),
+        startup({ id: "s2", name: "Helios Labs" }),
       ],
       portfolio: [portfolioRow({ id: "Atlas", startupId: "Atlas" })],
     });
@@ -211,6 +211,24 @@ describe("companyContext.resolveEntity", () => {
     expect(result.candidates[0]?.startupId).toBeUndefined();
     expect(result.candidates[0]?.portfolioCompanyId).toBe("Atlas");
     expect(result.candidates[0]?.matchedSources).toEqual(["monday"]);
+  });
+
+  it("returns driveTokens with parenthetical aliases for cross-system names", async () => {
+    const { service } = buildBundle({
+      startups: [startup({ id: "9426764108", name: "Wenabi" })],
+      portfolio: [
+        portfolioRow({
+          id: "KOMEET (ex WENABI)",
+          startupId: "KOMEET",
+        }),
+      ],
+    });
+    const result = await service.resolveEntity(internalCaller, "Wenabi");
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.driveTokens.map((entry) => entry.token)).toEqual(
+      expect.arrayContaining(["KOMEET (ex WENABI)", "WENABI"]),
+    );
   });
 });
 

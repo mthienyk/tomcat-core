@@ -71,6 +71,7 @@ const buildService = (overrides?: {
     rawPayload: Record<string, unknown>;
     contentHash: string;
   }>;
+  signalHubEnabled?: boolean;
 }) => {
   const society = {
     ensurePortfolioCompanyInScope: vi.fn(async () => undefined),
@@ -104,6 +105,7 @@ const buildService = (overrides?: {
     startups: startups as unknown as StartupsService,
     society: society as unknown as SocietyService,
     signalHub: signalHub as unknown as SignalHubService,
+    signalHubEnabled: overrides?.signalHubEnabled ?? false,
   });
 
   return { service, society, startups, signalHub, connectors };
@@ -204,7 +206,7 @@ describe("boardBrief service", () => {
   });
 
   it("warns when all sources are empty", async () => {
-    const { service } = buildService();
+    const { service } = buildService({ signalHubEnabled: true });
     const result = await service.prepareBoardBrief(caller, {
       portfolioCompanyId: "Webin",
     });
@@ -307,6 +309,7 @@ describe("boardBrief service", () => {
       startups: startups as unknown as StartupsService,
       society: society as unknown as SocietyService,
       signalHub: signalHub as unknown as SignalHubService,
+      signalHubEnabled: false,
     });
 
     const result = await service.prepareBoardBrief(caller, {

@@ -21,9 +21,11 @@ Required in `.env.secrets` for deploy:
 | `GOOGLE_OAUTH_CLIENT_ID` | Google Desktop client id (CLI + ID token verification) |
 | `GOOGLE_OAUTH_WEB_CLIENT_ID` | Google Web client id (MCP OAuth proxy) |
 | `GOOGLE_OAUTH_WEB_CLIENT_SECRET` | Google Web client secret (MCP OAuth proxy) |
-| Connector / LLM keys | See `.env.secrets.example` |
+| `SIGNAL_HUB_ENABLED` | Optional override (`false` default in deploy script) |
 
 Human auth: [docs/auth-google-mcp.md](./docs/auth-google-mcp.md). After deploy, add team members to the `users` table before they can call protected routes with Google tokens.
+
+**MCP remote:** Cursor can use the built-in OAuth flow (no static Bearer header). Set `OAUTH_ISSUER_URL` to the Scaleway API base URL. Flip `SIGNAL_HUB_ENABLED=true` when LinkedIn ingest goes live.
 
 ## Redéploiement manuel
 

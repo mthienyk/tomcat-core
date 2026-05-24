@@ -72,6 +72,10 @@ const EnvSchema = z.object({
   MONDAY_API_TOKEN: z.string().optional(),
 
   // Signal Hub
+  SIGNAL_HUB_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   SERPER_API_KEY: z.string().optional(),
   UNIPILE_DSN: z.string().optional(),
   UNIPILE_API_KEY: z.string().optional(),
@@ -128,6 +132,7 @@ export type AppConfig = {
       mondayToken: string | undefined;
     };
     signalHub: {
+      enabled: boolean;
       serperApiKey: string | undefined;
       unipileDsn: string | undefined;
       unipileApiKey: string | undefined;
@@ -204,6 +209,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       mondayToken: parsed.MONDAY_API_TOKEN,
     },
     signalHub: {
+      enabled: parsed.SIGNAL_HUB_ENABLED,
       serperApiKey: parsed.SERPER_API_KEY,
       unipileDsn: parsed.UNIPILE_DSN,
       unipileApiKey: parsed.UNIPILE_API_KEY,

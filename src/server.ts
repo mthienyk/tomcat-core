@@ -202,6 +202,7 @@ export const buildServer = async (
     startups,
     society,
     signalHub: signalHubService,
+    signalHubEnabled: config.signalHub.enabled,
   });
 
   const portfolioSignalDigest = buildPortfolioSignalDigestService({
@@ -209,6 +210,7 @@ export const buildServer = async (
     startups,
     society,
     signalHub: signalHubService,
+    signalHubEnabled: config.signalHub.enabled,
   });
 
   // --- Sync scheduler (when CoreStore available) ---
@@ -283,6 +285,7 @@ export const buildServer = async (
       },
       auditor,
       auth,
+      signalHubEnabled: config.signalHub.enabled,
       ...(oauthBroker.issuerUrl
         ? { resourceMetadataBaseUrl: oauthBroker.issuerUrl }
         : {}),

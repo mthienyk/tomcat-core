@@ -7,6 +7,7 @@ import {
   AGENT_TOOL_REGISTRY,
   type AgentToolServices,
 } from "../../src/agent/toolRegistry.js";
+import { listMcpAgentTools } from "../../src/agent/toolCatalog.js";
 import { Forbidden, BadRequest } from "../../src/errors/index.js";
 import type { Identity } from "../../src/domain/identity.js";
 import type { Auditor } from "../../src/audit/audit.js";
@@ -79,11 +80,15 @@ const fakeServices = (
     },
   }) as unknown as AgentToolServices;
 
-const startConnectedClient = async (services: AgentToolServices) => {
+const startConnectedClient = async (
+  services: AgentToolServices,
+  options?: { signalHubEnabled?: boolean },
+) => {
   const server = buildMcpAgentServer({
     services,
     resolveCaller: async () => human,
     auditor: noopAuditor(),
+    signalHubEnabled: options?.signalHubEnabled ?? false,
   });
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
@@ -99,17 +104,26 @@ const startConnectedClient = async (services: AgentToolServices) => {
 };
 
 describe("MCP server", () => {
-  it("exposes every registry tool through tools/list", async () => {
+  it("exposes non-Signal-Hub tools through tools/list by default", async () => {
     const { client } = await startConnectedClient(fakeServices([]));
     const list = await client.listTools();
-    expect(list.tools.map((tool) => tool.name).sort()).toEqual(
-      [...AGENT_TOOL_NAMES].sort(),
-    );
+    const expected = listMcpAgentTools(false).map((tool) => tool.name).sort();
+    expect(list.tools.map((tool) => tool.name).sort()).toEqual(expected);
     for (const tool of list.tools) {
       expect(tool.description).toMatch(/WHEN TO USE:/);
       expect(tool.description).toMatch(/Sources:/);
       expect(tool.inputSchema).toBeTruthy();
     }
+  });
+
+  it("exposes every registry tool when Signal Hub is enabled", async () => {
+    const { client } = await startConnectedClient(fakeServices([]), {
+      signalHubEnabled: true,
+    });
+    const list = await client.listTools();
+    expect(list.tools.map((tool) => tool.name).sort()).toEqual(
+      [...AGENT_TOOL_NAMES].sort(),
+    );
   });
 
   it("executes a tool through tools/call and returns a text content block", async () => {
@@ -195,7 +209,9 @@ describe("MCP server", () => {
     const services = fakeServices([]);
     services.signalHub.freezeUnipileAccount = vi.fn();
 
-    const { client } = await startConnectedClient(services);
+    const { client } = await startConnectedClient(services, {
+      signalHubEnabled: true,
+    });
     const result = await client.callTool({
       name: tool.name,
       arguments: {},
@@ -208,7 +224,9 @@ describe("MCP server", () => {
   });
 
   it("registers every tool with structured agent-first descriptions", async () => {
-    const { client } = await startConnectedClient(fakeServices([]));
+    const { client } = await startConnectedClient(fakeServices([]), {
+      signalHubEnabled: true,
+    });
     const list = await client.listTools();
     for (const tool of list.tools) {
       expect(tool.description).toMatch(/WHEN TO USE:/);
@@ -322,7 +340,9 @@ describe("MCP server", () => {
   });
 
   it("returns BAD_REQUEST for signal_hub_recent_signals without entity selector", async () => {
-    const { client } = await startConnectedClient(fakeServices([]));
+    const { client } = await startConnectedClient(fakeServices([]), {
+      signalHubEnabled: true,
+    });
     const result = await client.callTool({
       name: "signal_hub_recent_signals",
       arguments: {},
