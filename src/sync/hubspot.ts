@@ -1,45 +1,34 @@
 import { hostname } from "node:os";
 import type { SyncWorker, SyncWorkerDeps } from "./types.js";
 import {
+  enqueueHubspotActivityBackfill,
+  enqueueHubspotCompanyActivitySync,
+} from "./hubspotActivityEnqueue.js";
+import {
   hubspotActivityBackfillDataset,
-  hubspotActivityEntityKind,
   hubspotActivityQueueDataset,
   hubspotActivityReconcileDataset,
   hubspotActivitySyncDataset,
   refreshHubspotActivityFreshness,
   syncHubspotCompanyActivity,
 } from "./hubspotActivitySync.js";
+import { runHubspotStartupsDirectorySync } from "./hubspotStartupsSync.js";
 
 const workerId = (): string => `${hostname()}:${process.pid}`;
 
 export const hubspotStartupsWorker: SyncWorker = {
   dataset: "hubspot.startups",
 
-  async run({ store, connectors, logger }: SyncWorkerDeps): Promise<void> {
+  async run(deps: SyncWorkerDeps): Promise<void> {
+    const { store, logger } = deps;
     const run = await store.startSyncRun("hubspot.startups");
     try {
-      const startups = await connectors.hubspot.listStartups();
-      for (const startup of startups) {
-        await store.upsertStartup(startup);
-      }
-      await store.finishSyncRun(run.id, { recordsUpserted: startups.length });
-      await store.refreshDatasetFreshness("hubspot.startups");
-
-      let seeded = 0;
-      for (const startup of startups) {
-        const result = await store.enqueueSyncJob({
-          dataset: hubspotActivitySyncDataset,
-          entityKind: hubspotActivityEntityKind,
-          entityId: startup.id,
-          reason: "startup_seed",
-          priority: 180,
-        });
-        if (result === "created") seeded += 1;
-      }
+      const { startupCount } = await runHubspotStartupsDirectorySync(deps);
+      await store.finishSyncRun(run.id, { recordsUpserted: startupCount });
 
       logger.info(
-        { dataset: "hubspot.startups", count: startups.length, seeded },
-        "sync complete",
+        { dataset: "hubspot.startups", count: startupCount },
+        "directory sync complete",
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -55,21 +44,16 @@ export const hubspotActivityBackfillWorker: SyncWorker = {
   async run({ store, logger }: SyncWorkerDeps): Promise<void> {
     const run = await store.startSyncRun(hubspotActivityBackfillDataset);
     try {
-      const missing = await store.listHubspotCompanySyncStatesMissingActivity();
-      let enqueued = 0;
-      for (const companyId of missing) {
-        const result = await store.enqueueSyncJob({
-          dataset: hubspotActivitySyncDataset,
-          entityKind: hubspotActivityEntityKind,
-          entityId: companyId,
-          reason: "backfill",
-          priority: 200,
-        });
-        if (result === "created") enqueued += 1;
-      }
+      const { missing, enqueued, deduped } =
+        await enqueueHubspotActivityBackfill(store);
       await store.finishSyncRun(run.id, { recordsUpserted: enqueued });
       logger.info(
-        { dataset: hubspotActivityBackfillDataset, missing: missing.length, enqueued },
+        {
+          dataset: hubspotActivityBackfillDataset,
+          missing: missing.length,
+          enqueued,
+          deduped,
+        },
         "backfill enqueue complete",
       );
     } catch (err) {
@@ -115,9 +99,14 @@ export const createHubspotActivityQueueWorker = (
             store,
             connectors,
             companyId: job.entityId,
+            ...(job.triggerContext?.hubspotModifiedAt
+              ? { hubspotModifiedAt: job.triggerContext.hubspotModifiedAt }
+              : {}),
           });
           await store.completeSyncJob(job.id);
-          records += result.notes + result.deals + result.meetings;
+          if (!result.skipped) {
+            records += result.notes + result.deals + result.meetings;
+          }
         } catch (err) {
           failures += 1;
           const message = err instanceof Error ? err.message : String(err);
@@ -170,12 +159,10 @@ export const createHubspotActivityReconcileWorker = (
       let maxModifiedAt = cursor ?? new Date(sinceMs).toISOString();
 
       for (const company of modified) {
-        const result = await store.enqueueSyncJob({
-          dataset: hubspotActivitySyncDataset,
-          entityKind: hubspotActivityEntityKind,
-          entityId: company.id,
+        const result = await enqueueHubspotCompanyActivitySync(store, {
+          companyId: company.id,
           reason: "reconcile",
-          priority: 150,
+          hubspotModifiedAt: company.modifiedAt,
         });
         if (result === "created") enqueued += 1;
         if (Date.parse(company.modifiedAt) > Date.parse(maxModifiedAt)) {
@@ -218,12 +205,9 @@ export const hubspotActivityWorker: SyncWorker = {
       const startups = await store.listStartups();
       let enqueued = 0;
       for (const startup of startups) {
-        const result = await store.enqueueSyncJob({
-          dataset: hubspotActivitySyncDataset,
-          entityKind: hubspotActivityEntityKind,
-          entityId: startup.id,
+        const result = await enqueueHubspotCompanyActivitySync(store, {
+          companyId: startup.id,
           reason: "manual",
-          priority: 120,
         });
         if (result === "created") enqueued += 1;
       }

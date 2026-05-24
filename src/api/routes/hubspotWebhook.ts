@@ -1,10 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { CoreStore } from "../../storage/coreStore.js";
 import type { Logger } from "../../logger/index.js";
-import {
-  hubspotActivityEntityKind,
-  hubspotActivitySyncDataset,
-} from "../../sync/hubspotActivitySync.js";
+import { enqueueHubspotCompanyActivitySync } from "../../sync/hubspotActivityEnqueue.js";
 import {
   extractCompanyIdsFromWebhookEvents,
   parseHubspotWebhookPayload,
@@ -83,12 +80,9 @@ export const registerHubspotWebhookRoutes = (
       const companyIds = extractCompanyIdsFromWebhookEvents(events);
       let enqueued = 0;
       for (const companyId of companyIds) {
-        const result = await deps.store.enqueueSyncJob({
-          dataset: hubspotActivitySyncDataset,
-          entityKind: hubspotActivityEntityKind,
-          entityId: companyId,
+        const result = await enqueueHubspotCompanyActivitySync(deps.store, {
+          companyId,
           reason: "webhook",
-          priority: 50,
         });
         if (result === "created") enqueued += 1;
       }

@@ -161,6 +161,7 @@ type SyncQueueRow = {
   locked_by: string | null;
   last_error: string | null;
   dedupe_key: string;
+  trigger_context: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };
@@ -289,6 +290,15 @@ const mapFreshness = (r: FreshnessRow): DatasetFreshness => ({
   updatedAt: r.updated_at,
 });
 
+const mapTriggerContext = (
+  value: Record<string, unknown> | null,
+): SyncQueueJob["triggerContext"] => {
+  if (!value) return undefined;
+  const hubspotModifiedAt = value["hubspotModifiedAt"];
+  if (typeof hubspotModifiedAt !== "string") return undefined;
+  return { hubspotModifiedAt };
+};
+
 const mapSyncQueueJob = (r: SyncQueueRow): SyncQueueJob => ({
   id: r.id,
   dataset: r.dataset,
@@ -304,6 +314,7 @@ const mapSyncQueueJob = (r: SyncQueueRow): SyncQueueJob => ({
   lockedBy: r.locked_by ?? undefined,
   lastError: r.last_error ?? undefined,
   dedupeKey: r.dedupe_key,
+  triggerContext: mapTriggerContext(r.trigger_context),
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -766,12 +777,15 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       await db`
         insert into sync_queue (
           id, dataset, entity_kind, entity_id, reason, priority, status,
-          attempts, max_attempts, scheduled_at, dedupe_key, created_at, updated_at
+          attempts, max_attempts, scheduled_at, dedupe_key, trigger_context,
+          created_at, updated_at
         )
         values (
           ${id}, ${input.dataset}, ${input.entityKind}, ${input.entityId},
           ${input.reason}, ${priority}, 'pending', 0, ${maxAttempts},
-          ${scheduledAt}, ${dedupeKey}, ${t}, ${t}
+          ${scheduledAt}, ${dedupeKey},
+          ${input.triggerContext ? db.json(input.triggerContext) : null},
+          ${t}, ${t}
         )
       `;
       return "created";

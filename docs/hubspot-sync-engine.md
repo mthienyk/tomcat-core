@@ -130,7 +130,24 @@ Si un replica crash mid-job, `locked_at` reste set.
 
 **Choix** : `releaseStaleSyncJobs` après 10 min (`SYNC_QUEUE_STALE_JOB_MS`) remet en pending.
 
-### 3.9 Signatures webhook
+### 3.9 Re-enqueue périodique — corrigé 2026-05-24
+
+**Avant** : `hubspotStartupsWorker` enqueueait `startup_seed` pour tout le parc à chaque cycle 15 min (~220k calls/jour projetés).
+
+**Après** :
+
+| Worker | Rôle activity |
+| --- | --- |
+| `hubspotStartupsWorker` | Directory only (metadata startups) |
+| `hubspotActivityBackfillWorker` | First sync pour companies sans `hubspot_company_sync_state` |
+| `hubspotActivityReconcileWorker` | Delta via `hs_lastmodifieddate` (watermark dans `sync_queue.trigger_context`) |
+| Webhook | Push company changes (priorité 50) |
+
+`syncHubspotCompanyActivity` skip le fetch HubSpot si `hubspotModifiedAt` du job reconcile == `last_hubspot_modified_at` en base.
+
+Migration : `pg_007_sync_queue_trigger_context.sql`. Deploy prod **2026-05-24**.
+
+### 3.10 Signatures webhook
 
 HubSpot envoie v1 (Private Apps), v2 (workflows) ou v3 (OAuth apps). Le serveur tente :
 
@@ -157,7 +174,7 @@ Fenêtre timestamp : 5 minutes (replay protection).
 
 **Edge case URI** : proxies Scaleway peuvent réécrire le path → normalisation partielle des encodages URL. Si validation échoue en prod, vérifier que `req.url` correspond à l'URL enregistrée dans HubSpot.
 
-### 3.10 Pas de delete cascade V1
+### 3.11 Pas de delete cascade V1
 
 Si une note est supprimée dans HubSpot, la copie Postgres **reste** jusqu'à une stratégie de tombstones (phase 2).
 
@@ -170,7 +187,7 @@ Si une note est supprimée dans HubSpot, la copie Postgres **reste** jusqu'à un
 | Table | Rôle |
 | --- | --- |
 | `notes`, `deals`, `meetings` | Read model CRM (existant) |
-| `sync_queue` | Jobs durable par company |
+| `sync_queue` | Jobs durable par company (`trigger_context` jsonb pour watermark reconcile) |
 | `sync_cursors` | Watermark reconcile |
 | `hubspot_company_sync_state` | Dernier sync, counts, fingerprint notes |
 | `knowledge_index_chunks` | Préparation index sémantique (phase 2) |
@@ -245,16 +262,18 @@ Logs structurés :
 
 ## 8. Backfill initial (premier deploy)
 
+**Statut prod 2026-05-24** : backfill **terminé** (1 746 startups, activity complète, readiness `ready`). Cette section reste la référence pour un redeploy from scratch.
+
 Ordre attendu :
 
 1. Deploy avec `DATABASE_URL` + `HUBSPOT_API_TOKEN`
-2. `hubspot.startups` sync → seed queue (`startup_seed`)
+2. `hubspot.startups` sync → seed queue (`startup_seed`) — **une fois** ; le cycle 15 min ne doit pas re-enqueue tout le parc (bug P0, §3.9)
 3. `hubspot.activity.backfill` → companies sans `hubspot_company_sync_state`
 4. Queue worker consomme ~3 companies / 5 s, throttled
 
-Estimation grossière : 500 companies × ~5 calls ≈ 2500 calls → ~4–8 min à 90 req/10s (hors associations volumineuses).
+Estimation grossière : ~1 746 companies × ~3–8 calls → **~15–30 min** à 90 req/10s (hors associations volumineuses).
 
-Surveiller `GET /internal/sync/queue/hubspot.activity` jusqu'à `pending ≈ 0`.
+Surveiller `GET /internal/sync/queue/hubspot.activity` : après backfill initial, `pending` doit rester bas. Si ~1 700 jobs `startup_seed` pending reviennent en boucle → bug §3.9 actif.
 
 ---
 
@@ -282,6 +301,7 @@ Prochaines étapes :
 | Note edit sans webhook | Reconcile 6 h max delay |
 | Search API indisponible | Reconcile fail, retry au prochain cycle |
 | pgvector absent Scaleway | Extension skipped (notice), chunks sans embedding OK |
+| Re-enqueue `startup_seed` toutes les 15 min | **Corrigé** (directory-only + backfill/reconcile/webhook) |
 
 ---
 

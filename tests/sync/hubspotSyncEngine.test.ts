@@ -116,6 +116,7 @@ describe("normalizeHubspotRequestUri", () => {
 describe("syncHubspotCompanyActivity", () => {
   it("upserts activity and company sync state", async () => {
     const store = {
+      getHubspotCompanySyncState: async () => undefined,
       upsertDeal: async () => undefined,
       upsertNote: async () => undefined,
       upsertMeeting: async () => undefined,
@@ -137,5 +138,48 @@ describe("syncHubspotCompanyActivity", () => {
 
     expect(result.notes).toBe(1);
     expect(result.notesFingerprint).toHaveLength(64);
+    expect(result.skipped).toBeUndefined();
+  });
+
+  it("skips HubSpot fetch when reconcile watermark is unchanged", async () => {
+    const store = {
+      getHubspotCompanySyncState: async () => ({
+        companyId: "42",
+        lastActivitySyncAt: "2026-01-01T00:00:00.000Z",
+        lastHubspotModifiedAt: "2026-01-02T00:00:00.000Z",
+        notesCount: 3,
+        dealsCount: 1,
+        meetingsCount: 0,
+        notesFingerprint: "abc",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      }),
+      upsertDeal: async () => undefined,
+      upsertNote: async () => undefined,
+      upsertMeeting: async () => undefined,
+      upsertHubspotCompanySyncState: async () => undefined,
+    };
+    const connectors = {
+      hubspot: {
+        listDealsForStartup: async () => {
+          throw new Error("should not fetch");
+        },
+        listNotesForStartup: async () => {
+          throw new Error("should not fetch");
+        },
+        listMeetingsForStartup: async () => {
+          throw new Error("should not fetch");
+        },
+      },
+    };
+
+    const result = await syncHubspotCompanyActivity({
+      store: store as never,
+      connectors: connectors as never,
+      companyId: "42",
+      hubspotModifiedAt: "2026-01-02T00:00:00.000Z",
+    });
+
+    expect(result.skipped).toBe(true);
+    expect(result.notes).toBe(3);
   });
 });

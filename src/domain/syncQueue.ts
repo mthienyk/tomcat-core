@@ -12,6 +12,10 @@ export type SyncQueueStatus =
   | "failed"
   | "dead";
 
+export type SyncQueueTriggerContext = {
+  hubspotModifiedAt?: string;
+};
+
 export type SyncQueueJob = {
   id: string;
   dataset: string;
@@ -27,6 +31,7 @@ export type SyncQueueJob = {
   lockedBy: string | undefined;
   lastError: string | undefined;
   dedupeKey: string;
+  triggerContext: SyncQueueTriggerContext | undefined;
   createdAt: string;
   updatedAt: string;
 };
@@ -39,6 +44,7 @@ export type EnqueueSyncJobInput = {
   priority?: number;
   maxAttempts?: number;
   scheduledAt?: string;
+  triggerContext?: SyncQueueTriggerContext;
 };
 
 export type SyncQueueStats = {

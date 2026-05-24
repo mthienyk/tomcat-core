@@ -18,6 +18,7 @@ is its data and permissions nexus: Postgres read model, sync, API, redaction.
 | [docs/mcp-use-cases.md](./docs/mcp-use-cases.md) | MCP use cases, protocol alignment, implementation guide |
 | [docs/mcp-work-status.md](./docs/mcp-work-status.md) | MCP handoff: done, in progress, next steps |
 | [docs/hubspot-sync-engine.md](./docs/hubspot-sync-engine.md) | HubSpot read model: queue, webhooks, rate limits, edge cases |
+| [docs/local-read-model-handoff.md](./docs/local-read-model-handoff.md) | Read model Postgres: seed status, validation, open issues |
 
 Society owns member login (magic link priority, Google for `@tomcat.eu` team).
 Core recalculates access on every request; UI never decides visibility.
@@ -91,11 +92,12 @@ scale.
 | `pg_002_core.sql` | Startups, portfolio companies, deals, notes, meetings, board packs, signals, events, sync runs, dataset freshness |
 | `pg_003_identity.sql` | Internal users and investor records |
 
-**Sync workers** (`src/sync/`) keep HubSpot, Monday and Drive datasets fresh. HubSpot activity uses a **durable queue** (webhook + reconcile + backfill), not a full CRM rescan every 15 minutes. See [docs/hubspot-sync-engine.md](./docs/hubspot-sync-engine.md).
+**Sync workers** (`src/sync/`) keep HubSpot, Monday and Drive datasets fresh. HubSpot activity uses a **durable queue** (webhook + reconcile + backfill). See [docs/hubspot-sync-engine.md](./docs/hubspot-sync-engine.md) and [docs/local-read-model-handoff.md](./docs/local-read-model-handoff.md) (seed validated 2026-05-24).
 
 | Worker | Dataset | Source |
 | --- | --- | --- |
-| `hubspotStartupsWorker` | `hubspot.startups` | HubSpot companies |
+| `hubspotStartupsWorker` | `hubspot.startups` | HubSpot company directory (metadata) |
+| `hubspotActivityBackfillWorker` | `hubspot.activity.backfill` | First activity sync for new companies |
 | `hubspotActivityQueueWorker` | `hubspot.activity` (queue) | HubSpot deals, notes, meetings per company |
 | `hubspotActivityReconcileWorker` | `hubspot.activity.reconcile` | HubSpot companies modified since cursor |
 | `mondayPortfolioWorker` | `monday.portfolio` | Monday.com portfolio board |

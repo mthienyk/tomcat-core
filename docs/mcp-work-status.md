@@ -1,8 +1,8 @@
 # MCP Tomcat — note de reprise
 
-Dernière mise à jour : 2026-05-24 (BP playbook, Drive prod fix, multi-token)
+Dernière mise à jour : 2026-05-24 (read model seed validé)
 
-Document de handoff pour reprendre le travail sur le MCP Tomcat Core. Spec normative : [mcp-use-cases.md](./mcp-use-cases.md).
+Document de handoff pour reprendre le travail sur le MCP Tomcat Core. Spec normative : [mcp-use-cases.md](./mcp-use-cases.md). Read model Postgres : [local-read-model-handoff.md](./local-read-model-handoff.md).
 
 ---
 
@@ -42,6 +42,25 @@ src/agent/toolRegistry.ts     ← source unique (schemas, handlers, access)
 ```
 
 Build copie `src/playbooks/` → `dist/playbooks/` (`npm run build`).
+
+---
+
+## Read model Postgres (seed validé 2026-05-24)
+
+Scaleway prod : `/health/readiness` → **`ready`**. MCP lit HubSpot / Monday / Drive depuis Postgres via `storeBacked` (fallback live si `healthy=false`).
+
+| Dataset | Records prod |
+| --- | ---: |
+| startups | 1 746 |
+| notes | 4 316 |
+| portfolio_companies | 8 |
+| board_packs | 823 |
+
+**Sync wasteful** : corrigé et **deployé** prod 2026-05-24. Voir [local-read-model-handoff.md](./local-read-model-handoff.md) §7.4.
+
+**Monday 8 portcos** : à confirmer avec Kevin / Audrien (live API = 8 boards emoji).
+
+**Webhook HubSpot** : phase 2 (secret manquant).
 
 ---
 

@@ -14,6 +14,7 @@ export type HubspotActivitySyncResult = {
   notes: number;
   meetings: number;
   notesFingerprint: string;
+  skipped?: boolean;
 };
 
 const HUBSPOT_ACTIVITY_DATASETS = [
@@ -37,6 +38,24 @@ export const syncHubspotCompanyActivity = async (input: {
   hubspotModifiedAt?: string;
 }): Promise<HubspotActivitySyncResult> => {
   const { store, connectors, companyId, hubspotModifiedAt } = input;
+
+  if (hubspotModifiedAt) {
+    const existing = await store.getHubspotCompanySyncState(companyId);
+    if (
+      existing?.lastHubspotModifiedAt
+      && existing.lastHubspotModifiedAt === hubspotModifiedAt
+    ) {
+      return {
+        companyId,
+        deals: existing.dealsCount,
+        notes: existing.notesCount,
+        meetings: existing.meetingsCount,
+        notesFingerprint: existing.notesFingerprint ?? "",
+        skipped: true,
+      };
+    }
+  }
+
   const [dealList, noteList, meetingList] = await Promise.all([
     connectors.hubspot.listDealsForStartup(companyId),
     connectors.hubspot.listNotesForStartup(companyId),
