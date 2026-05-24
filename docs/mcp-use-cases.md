@@ -217,6 +217,102 @@ Chaque outil ajouté au registre doit respecter ce contrat (détail §13).
 - Publication auto sans gate humain
 - Dépendance à Roots / Sampling MCP (dépréciés spec 2026-07-28)
 
+### 3.5 Principes de conception (révision 2026-05-24, post test live)
+
+Ces principes prennent le pas sur les conventions §3.4 quand il y a conflit. Ils répondent aux frictions observées en conditions réelles sur Wenabi/KOMEET (voir [mcp-work-status.md](./mcp-work-status.md#leçons-du-test-live-2026-05-24)).
+
+#### P1. Mini-livrables, pas wrappers
+
+Un tool MCP renvoie une **réponse métier prête à citer**, pas une page d'API. Le service Tomcat fait le ranking, le scoring, la sélection des extraits pertinents. Le LLM rédige la réponse finale à partir du mini-livrable.
+
+| Mauvais | Bon |
+| --- | --- |
+| `read_startup_notes` → 200 notes chronologiques | `summarize_company_activity` → top 10 notes ranked (récence × importance), résumé exécutif, signaux clés |
+| `list_company_documents` → 50 fichiers Drive | `find_latest_deck` → le deck le plus récent, déjà text-extracted |
+| `read_startup_meetings` → 40 meetings ATS | Inclus dans `summarize_company_activity` cappé top-N avec stats |
+
+Conséquence : moins de tools (~16 vs 25), chacun plus opinionated.
+
+#### P2. Dégradation gracieuse, jamais de 404 sur dépendance secondaire
+
+Si Monday n'a pas la société mais que HubSpot et Drive l'ont, le brief sort avec une enveloppe partielle et un `warning`, pas une erreur. Une dépendance manquante est une donnée à part entière.
+
+```
+✗ prepare_board_brief("Wenabi") → 404 "Portfolio company not found"
+✓ prepare_board_brief("Wenabi") → ToolRunEnvelope partiel
+    + warning: MONDAY_LINK_MISSING
+    + sections: { crm: full, drive: full, signals: empty, monday: skipped }
+```
+
+Règle : un tool n'échoue dur que si **la donnée principale** manque (le startup lui-même, pas une de ses sources d'enrichissement).
+
+#### P3. CoreStore-first, API live en fallback
+
+Toutes les lectures HubSpot/Monday/Drive passent par le Postgres read model en priorité. Les sync workers maintiennent la fraîcheur. API live uniquement pour :
+
+- Notes body / extraits Drive non cachés
+- Vérification ponctuelle de fraîcheur quand le caller exige real-time
+
+Cache LRU 60s par run MCP pour absorber les rafales de l'agent.
+
+Bénéfice direct : disparition du `429 secondly limit` HubSpot observé en test, latence ~10ms au lieu de ~500ms.
+
+#### P4. Linkage persistant via alias store
+
+`resolve_entity` consulte une table `entity_aliases` qui mémorise les correspondances cross-système (KOMEET ↔ Wenabi, ancien nom ↔ nouveau nom, fondateur ↔ société). Apprentissage incrémental par confirmation humaine.
+
+Chaque candidat retourné expose `sources` matchées et `confidence` 0-1 pour audit.
+
+#### P5. Drive pré-filtré et rangé par pertinence
+
+`list_company_documents` retourne par défaut **uniquement les fichiers text-extractables** (Google Docs, Slides, Sheets). Flag `includeBinaries: true` pour fallback PDF/xlsx.
+
+Chaque fichier porte un score `relevance` calculé sur (nom × path × récence) :
+
+```
+board pack > deck investisseur > BP > monthly reporting > juridique > divers
+```
+
+Un seul `read_company_document_excerpt` suffit alors pour cibler le bon document.
+
+#### P6. Output budget par tool
+
+Tout tool a un cap implicite : top-N facts ranked, jamais une liste exhaustive non bornée. L'agent peut demander plus via pagination explicite (`offset`, `limit`).
+
+Cap par défaut suggéré : 15 notes, 10 deals, 10 meetings, 5 documents, 200 tokens par excerpt.
+
+### 3.6 Catalogue cible (révision post test live)
+
+État de transition : on garde les 25 tools livrés tant que les remplaçants ne sont pas en place, puis on déprécie.
+
+#### À ajouter (Phase 1 révisée)
+
+| Tool | Apport | Remplace |
+| --- | --- | --- |
+| `summarize_company_activity` | Brief CRM ranked top-N facts par société | `read_startup_notes` + `read_startup_deals` + `read_startup_meetings` + `list_company_crm_activity` |
+| `find_latest_deck` | Deck le plus récent, text-extracted, prêt à citer | Chaîne `list_company_documents` → `read_company_document_excerpt` |
+| `whats_new_for_me` | Daily digest personnel du caller (deals owned, meetings, portcos) | (nouveau) |
+| `prepare_m1_meeting_brief` | Brief pré-M1 (au plan initial) | (nouveau) |
+
+#### À renforcer
+
+| Tool | Changement |
+| --- | --- |
+| `prepare_board_brief` | Plus de prérequis Monday ; enveloppe partielle + warnings |
+| `resolve_entity` | Alias store, `sources` matchées par candidat, `confidence` 0-1 |
+| `generate_portfolio_signal_digest` | Sans Signal Hub : fallback HubSpot notes récentes par portco |
+
+#### À retirer ou fusionner
+
+| Tool | Action | Raison |
+| --- | --- | --- |
+| `build_board_prep_context` | Retirer surface MCP | Doublon `prepare_board_brief` |
+| `list_portfolio_signals` | Fusionner dans `list_portfolio_context` | Cas particulier |
+| `build_company_360_context` | Repenser ou retirer | Aujourd'hui `prepare_board_brief` light moins bien |
+| `read_startup_*`, `list_company_crm_activity` | Déprécier après `summarize_company_activity` | Wrappers CRUD remplacés |
+
+Cible : **25 → ~16 tools**, plus clairs, plus opinionated.
+
 ---
 
 ## 4. Patterns d'orchestration
@@ -800,19 +896,42 @@ Objectif : MCP stdio équipe fiable, patterns en place avant les outils P0.
 | 0.6 | Descriptions agents-first | `agent/toolCopy.ts`, `mcp/toolMeta.ts` | ✅ WHEN TO USE / THEN CONSIDER sur 22 outils |
 | 0.7 | Tests contract UC | `tests/mcp/server.test.ts` | ✅ board prep envelope, find_competitive_history |
 
-### Phase 1 — Outils P0 (cas pilotes v1)
+### Phase 1 — Quick wins + nouveaux mini-livrables (révisé 2026-05-24)
 
-Objectif : prouver la thèse audit (board prep, digest, Drive archiviste, M2 proto).
+Objectif : rendre le MCP **utile au quotidien** pour l'équipe Tomcat avant d'ajouter de nouveaux outils.
 
-| Outil | UC | Ordre suggéré |
+#### Phase 1.a — Quick wins (cette semaine)
+
+| # | Action | Principe (§3.5) | Critère de sortie |
+| --- | --- | --- | --- |
+| 1.a.1 | `prepare_board_brief` sans Monday | P2 dégradation gracieuse | Brief retourné pour Wenabi avec CRM + Drive seuls, warnings explicites |
+| 1.a.2 | Cache CoreStore + LRU 60s sur lectures HubSpot | P3 CoreStore-first | 0 erreur `429` sur batterie de tests parallèle |
+| 1.a.3 | `list_company_documents` : filtre binaires + ranking pertinence | P5 Drive rangé | Premier résultat = board pack ou deck dans 80% des cas |
+| 1.a.4 | Cap intelligent meetings/notes top-N ranked | P6 output budget | `list_company_crm_activity` plafonné top 15+10+10 par défaut |
+
+#### Phase 1.b — Nouveaux mini-livrables
+
+| Tool | UC | Remplace | Ordre |
+| --- | --- | --- | --- |
+| `summarize_company_activity` | UC-ELI-01, UC-PAT-* | 4 wrappers CRUD CRM | 1 |
+| `find_latest_deck` | UC-ELI-01, UC-KEV-01 | Chaîne list → read excerpt | 2 |
+| `whats_new_for_me` | UC-INT-* | (nouveau) | 3 |
+| `prepare_m1_meeting_brief` | UC-ELI-01 | (au plan initial) | 4 |
+
+#### Phase 1.c — Linkage persistant
+
+| Action | Détail |
+| --- | --- |
+| Migration `pg_004_entity_aliases.sql` | `(canonical_id, alias_name, source, confidence, created_by, created_at)` |
+| Populate initial | KOMEET=Wenabi, autres fusions connues |
+| `resolve_entity` v2 | Lookup alias, `sources` matchées, `confidence` par candidat |
+
+#### Phase 1.d — Tools historiques P0 (après quick wins)
+
+| Outil | UC | Notes |
 | --- | --- | --- |
-| `resolve_company_drive_folder` | UC-GUI-02, prérequis BP/M2 | 1 |
-| `prepare_board_brief` | UC-ELI-03 | 2 (upgrade `build_board_prep_context`) |
-| `generate_portfolio_signal_digest` | UC-COM-01 | 3 |
-| `find_competitive_history` | UC-KEV-05, UC-ELI-01 | 4 (Phase 0.4) |
-| `prepare_m1_meeting_brief` | UC-ELI-01 | 5 |
-| `run_m2_financial_analysis` | UC-KEV-01 | 6 (async + runId) |
-| `score_startup_list_against_thesis` | UC-KEV-02 | 7 (dépend Dealfy module) |
+| `run_m2_financial_analysis` | UC-KEV-01 | Async + runId (pattern Tasks) |
+| `score_startup_list_against_thesis` | UC-KEV-02 | Dépend Dealfy module |
 
 Chaque outil P0 ship avec : spec input/output, test service, test MCP, entrée §11 index → LIVRE.
 
