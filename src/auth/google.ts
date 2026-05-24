@@ -26,6 +26,8 @@ export const createGoogleHumanResolver = (
   resolve: async (req): Promise<HumanIdentity | undefined> => {
     const token = extractBearer(req);
     if (!token) return undefined;
+    // Opaque MCP OAuth tokens are not JWTs — let mcp-oauth-bearer resolver handle them.
+    if (!token.includes(".")) return undefined;
 
     try {
       return await verifyGoogleIdToken(opts, token);

@@ -108,22 +108,6 @@ export const buildServer = async (
       })
     : placeholderRoleResolver;
 
-  if (config.auth.googleOAuthClientId) {
-    if (!coreStore && config.env === "development") {
-      app.log.warn(
-        "placeholder role resolver enabled: replace before production auth rollout",
-      );
-    }
-
-    resolvers.push(
-      createGoogleHumanResolver({
-        clientId: config.auth.googleOAuthClientId,
-        allowedDomains: config.auth.allowedGoogleDomains,
-        resolveRole: roleResolver,
-      }),
-    );
-  }
-
   // --- MCP OAuth broker (Tomcat Core acts as Authorization Server) ---
   const oauthBroker = config.auth.oauthBroker;
   let mcpOauthService: McpOAuthService | undefined;
@@ -147,6 +131,22 @@ export const buildServer = async (
   } else if (oauthBroker.enabled && !coreStore) {
     app.log.warn(
       "MCP OAuth broker requested but disabled: requires DATABASE_URL",
+    );
+  }
+
+  if (config.auth.googleOAuthClientId) {
+    if (!coreStore && config.env === "development") {
+      app.log.warn(
+        "placeholder role resolver enabled: replace before production auth rollout",
+      );
+    }
+
+    resolvers.push(
+      createGoogleHumanResolver({
+        clientId: config.auth.googleOAuthClientId,
+        allowedDomains: config.auth.allowedGoogleDomains,
+        resolveRole: roleResolver,
+      }),
     );
   }
   resolvers.push(
