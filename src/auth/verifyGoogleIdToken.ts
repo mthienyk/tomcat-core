@@ -2,6 +2,7 @@ import { OAuth2Client, type TokenPayload } from "google-auth-library";
 import { AuthInvalid, CoreError } from "../errors/index.js";
 import type { HumanIdentity, Role } from "../domain/identity.js";
 import type { RoleResolver } from "./roleResolver.js";
+import { normalizeEmail, emailDomain } from "./email.js";
 
 export type GoogleResolverOptions = {
   clientId: string;
@@ -32,11 +33,14 @@ export const verifyGoogleIdToken = async (
     payload = assertVerifiedEmail(ticket.getPayload());
   } catch (error) {
     if (error instanceof CoreError) throw error;
-    throw AuthInvalid("Invalid Google ID token");
+    throw AuthInvalid("Invalid or expired Google ID token", {
+      reason: "invalid_token",
+      nextAction: "run_npm_auth_token",
+    });
   }
 
-  const email = payload.email as string;
-  const domain = email.split("@")[1] ?? "";
+  const email = normalizeEmail(payload.email as string);
+  const domain = emailDomain(email);
   if (!opts.allowedDomains.includes(domain)) {
     throw AuthInvalid(`Domain "${domain}" is not allowed`);
   }

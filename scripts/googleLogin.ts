@@ -72,7 +72,37 @@ const probeMe = async (coreUrl: string, idToken: string): Promise<void> => {
     headers: { Authorization: `Bearer ${idToken}` },
   });
   const body = await response.text();
-  process.stderr.write(`\nGET ${coreUrl}/me → HTTP ${response.status}\n${body}\n`);
+  process.stderr.write(`\nGET ${coreUrl}/me → HTTP ${response.status}\n`);
+
+  if (response.ok) {
+    process.stderr.write("Core auth OK. First @tomcat.eu login auto-provisions internal_team.\n");
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { code?: string; message?: string; details?: { reason?: string } };
+    };
+    const code = parsed.error?.code;
+    const reason = parsed.error?.details?.reason;
+    if (code === "AUTH_INVALID" && reason === "access_revoked") {
+      process.stderr.write(
+        "Access revoked in Core (users.active=false). Re-login will not help; contact an admin.\n",
+      );
+      return;
+    }
+    if (code === "AUTH_INVALID") {
+      process.stderr.write(
+        `${parsed.error?.message ?? body}\n`
+        + "If the token is valid, check Core deploy and GOOGLE_OAUTH_CLIENT_ID alignment.\n",
+      );
+      return;
+    }
+  } catch {
+    // fall through
+  }
+
+  process.stderr.write(`${body}\n`);
 };
 
 const decodeJwtEmail = (jwt: string): string | undefined => {
@@ -137,7 +167,7 @@ const main = async (): Promise<void> => {
   } else {
     process.stderr.write(
       "\nTip: export CORE_URL=https://tomcatcore91c5e290-api.functions.fnc.fr-par.scw.cloud "
-      + "to probe /me automatically.\n",
+      + "to verify Core auth (/me) after login.\n",
     );
   }
 };

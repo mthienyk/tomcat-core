@@ -131,7 +131,7 @@ Déprécier `read_startup_*`, `list_company_crm_activity`, `build_board_prep_con
 |-------|----------|
 | Alias store HubSpot ↔ Monday ↔ Drive | Élevée |
 | Migrer les tools restants vers `ToolRunEnvelope` | Moyenne |
-| MCP HTTP remote prod | Phase 2 |
+| MCP HTTP remote prod | ✅ `/mcp` Streamable HTTP + Bearer Google | Filtrage tier investisseur Phase 2.3 |
 
 ---
 

@@ -18,7 +18,7 @@ import { buildBoardBriefService } from "../src/services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "../src/services/portfolioSignalDigest.js";
 import { bootstrapSignalHub } from "../src/services/signalHub/bootstrap.js";
 import { createAuditor } from "../src/audit/audit.js";
-import { resolveMcpCaller } from "../src/auth/mcpCaller.js";
+import { createMcpCallerResolver } from "../src/auth/mcpCaller.js";
 import { buildMcpAgentServer } from "../src/mcp/server.js";
 
 const logger = pino(
@@ -30,10 +30,11 @@ const main = async (): Promise<void> => {
   const config = loadConfig();
   const httpConnectors = buildConnectors(config);
   let connectors = httpConnectors;
+  let coreStore: Awaited<ReturnType<typeof createPgCoreStore>> | undefined;
   if (config.database.url) {
     const pgDb = createDb(config.database.url);
     await runPgMigrations(pgDb);
-    const coreStore = await createPgCoreStore(pgDb);
+    coreStore = await createPgCoreStore(pgDb);
     connectors = buildStoreBackedConnectors(coreStore, httpConnectors);
     logger.info("MCP using CoreStore-backed connectors");
   }
@@ -90,10 +91,11 @@ const main = async (): Promise<void> => {
     portfolioSignalDigest,
   };
   const auditor = createAuditor(logger);
+  const resolveCaller = createMcpCallerResolver(config, coreStore);
 
   const server = buildMcpAgentServer({
     services,
-    resolveCaller: resolveMcpCaller,
+    resolveCaller,
     auditor,
   });
 
@@ -105,7 +107,7 @@ const main = async (): Promise<void> => {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  const bootCaller = await resolveMcpCaller();
+  const bootCaller = await resolveCaller();
   logger.info(
     { email: bootCaller.email, role: bootCaller.role },
     "Tomcat MCP ready on stdio",

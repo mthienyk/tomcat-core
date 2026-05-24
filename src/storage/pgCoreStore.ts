@@ -255,6 +255,15 @@ const mapUser = (r: UserRow): UserRecord => ({
 // --- Store factory ---
 
 export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
+  const findUserByEmail = async (
+    email: string,
+  ): Promise<UserRecord | undefined> => {
+    const rows = await db<UserRow[]>`
+      select * from users where email = ${email}
+    `;
+    return rows[0] ? mapUser(rows[0]) : undefined;
+  };
+
   return {
     // --- Startups ---
     async upsertStartup(s: Startup): Promise<void> {
@@ -668,11 +677,22 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       `;
     },
 
-    async getUserByEmail(email: string): Promise<UserRecord | undefined> {
-      const rows = await db<UserRow[]>`
-        select * from users where email = ${email} and active = true
+    async insertUserIfAbsent(user: UserRecord): Promise<boolean> {
+      const t = now();
+      const rows = await db<{ email: string }[]>`
+        insert into users (email, role, team, active, created_at, updated_at)
+        values (${user.email}, ${user.role}, ${user.team ?? null}, ${user.active}, ${t}, ${t})
+        on conflict (email) do nothing
+        returning email
       `;
-      return rows[0] ? mapUser(rows[0]) : undefined;
+      return rows.length > 0;
+    },
+
+    findUserByEmail,
+
+    async getUserByEmail(email: string): Promise<UserRecord | undefined> {
+      const user = await findUserByEmail(email);
+      return user?.active ? user : undefined;
     },
 
     async listUsers(): Promise<UserRecord[]> {

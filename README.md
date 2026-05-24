@@ -60,8 +60,8 @@ Humans authenticate through Google OAuth (`@tomcat.eu`, Workspace **Internal** a
 Core verifies Google ID tokens on each protected HTTP request.
 
 When `DATABASE_URL` is set (production), roles come from the Postgres `users` table.
-**Unknown or inactive users are rejected** (fail closed). Manage users via
-`POST /internal/users` or SQL — see [docs/auth-google-mcp.md](./docs/auth-google-mcp.md).
+First `@tomcat.eu` Google login auto-provisions `internal_team`. Revoke via
+`active=false` — see [docs/auth-google-mcp.md](./docs/auth-google-mcp.md).
 
 In local development without `DATABASE_URL`, a placeholder resolver grants
 `internal_team` to any `@tomcat.eu` address (with a startup warning).
@@ -178,37 +178,43 @@ The same registry is exposed as a [Model Context Protocol](https://modelcontextp
 server (`src/mcp/server.ts`). It runs over stdio and can be plugged into Cursor,
 Claude Desktop or any MCP-compatible client.
 
-**Authentication:** when `GOOGLE_OAUTH_CLIENT_ID` is set, MCP requires a Google
-`@tomcat.eu` session (`npm run auth:google`). Identity is re-verified before each
-tool call. See [docs/auth-google-mcp.md](./docs/auth-google-mcp.md).
+The same registry is exposed as MCP in two modes:
+
+| Mode | Entry | Use when |
+| --- | --- | --- |
+| **HTTP remote** | `POST/GET /mcp` on Core API | Daily team use in Cursor (prod data) |
+| **stdio local** | `npm run mcp:stdio` | Offline dev, connector debugging |
+
+**Authentication:** remote `/mcp` uses `Authorization: Bearer <google-id-token>` (same as `/me`).
+Local stdio uses a Google session file (`npm run auth:google`). See [docs/auth-google-mcp.md](./docs/auth-google-mcp.md).
 
 ```bash
 npm run auth:google    # once per session (~1h ID token, refresh token persisted)
+npm run auth:token     # print Bearer token + Cursor remote snippet
 npm run auth:status    # check local session
-npm run mcp:stdio
+npm run mcp:stdio      # local stdio only
 ```
 
 Each tool advertises its sources, access level and approval requirement in the
 description. Approval-required tools refuse to execute over MCP and emit an
 audit event.
 
-Example Cursor config:
+Example Cursor config (remote):
 
 ```json
 {
   "mcpServers": {
     "tomcat-core": {
-      "command": "npm",
-      "args": ["run", "mcp:stdio"],
-      "cwd": "/absolute/path/to/tomcat-core"
+      "url": "https://tomcatcore91c5e290-api.functions.fnc.fr-par.scw.cloud/mcp",
+      "headers": {
+        "Authorization": "Bearer <from npm run auth:token>"
+      }
     }
   }
 }
 ```
 
-**Note:** the stdio MCP uses local connector credentials from `.env`. For a
-production-grade remote MCP, route tool execution through the Core HTTP API with
-Bearer auth (future work).
+**Note:** stdio MCP uses local connector credentials from `.env`. Remote `/mcp` uses prod CoreStore on Scaleway.
 
 ## Endpoints
 
@@ -217,6 +223,7 @@ Bearer auth (future work).
 | `GET` | `/health` | none | Liveness — always 200 |
 | `GET` | `/health/connectors` | none | Parallel probes: HubSpot, Monday, Drive. Status `ok` or `degraded` |
 | `GET` | `/health/readiness` | none | Dataset freshness from CoreStore. 503 when no database |
+| `ALL` | `/mcp` | Google Bearer + internal role | MCP Streamable HTTP (remote team MCP) |
 | `GET` | `/me` | authenticated | Resolved human or machine identity |
 | `GET` | `/connectors/hubspot/startups` | `society.read` | Query: `q`, `sector`, `limit` |
 | `POST` | `/ai/query` | `ai.query` | Agentic tool planning and execution |

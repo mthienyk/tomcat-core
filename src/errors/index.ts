@@ -32,8 +32,10 @@ export class CoreError extends Error {
 export const AuthRequired = (msg = "Authentication required"): CoreError =>
   new CoreError("AUTH_REQUIRED", msg, 401);
 
-export const AuthInvalid = (msg = "Invalid credentials"): CoreError =>
-  new CoreError("AUTH_INVALID", msg, 401);
+export const AuthInvalid = (
+  msg = "Invalid credentials",
+  details?: Record<string, unknown>,
+): CoreError => new CoreError("AUTH_INVALID", msg, 401, details);
 
 export const Forbidden = (
   msg = "Forbidden",

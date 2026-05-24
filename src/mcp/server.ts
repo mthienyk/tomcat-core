@@ -9,6 +9,7 @@ import {
 } from "../agent/toolRegistry.js";
 import type { CoreToolName } from "../domain/agent.js";
 import { CoreError } from "../errors/index.js";
+import { mcpNextActionForAuthError } from "../auth/authHints.js";
 import { MCP_SERVER_INSTRUCTIONS } from "./instructions.js";
 
 export type McpAgentServerOptions = {
@@ -56,7 +57,7 @@ const toStructuredPayload = (output: unknown): Record<string, unknown> => {
 const nextActionFromCoreError = (error: CoreError): string => {
   if (error.code === "BAD_REQUEST") return "fix_arguments_or_clarify";
   if (error.code === "AUTH_INVALID" || error.code === "AUTH_REQUIRED") {
-    return "run_npm_auth_google";
+    return mcpNextActionForAuthError(error);
   }
   if (error.code === "FORBIDDEN") return "adjust_identity_scope";
   if (error.code === "NOT_FOUND") return "refresh_ids_via_resolve_entity";
@@ -93,9 +94,7 @@ const formatToolFailure = (error: unknown): Record<string, unknown> => {
     };
   }
   const message = error instanceof Error ? error.message : "unknown_error";
-  const nextAction = message.includes("auth:google")
-    ? "run_npm_auth_google"
-    : "inspect_audit_logs_or_support";
+  const nextAction = mcpNextActionForAuthError(error);
   return {
     error: {
       code: "INTERNAL",

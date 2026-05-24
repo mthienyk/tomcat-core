@@ -19,10 +19,11 @@ const main = (): void => {
   const lines = [
     "Google session: signed in",
     `  email: ${status.email ?? "(unknown)"}`,
-    `  id token: ${status.idTokenFresh ? "fresh" : "expired (will refresh on next MCP use)"}`,
+    `  id token: ${status.idTokenFresh ? "fresh" : "expired (stdio MCP will refresh automatically)"}`,
     `  expires: ${status.idTokenExpiresAt ?? "unknown"}`,
     `  refresh token: ${status.hasRefreshToken ? "yes" : "no — run npm run auth:google"}`,
     `  file: ${status.sessionPath}`,
+    "  remote MCP: run npm run auth:token when Cursor Bearer expires (~1h)",
   ];
   process.stdout.write(`${lines.join("\n")}\n`);
 

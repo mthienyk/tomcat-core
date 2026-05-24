@@ -41,6 +41,7 @@ import {
 import { registerConnectorRoutes } from "./api/routes/connectors.js";
 import { registerSignalRoutes } from "./api/routes/signals.js";
 import { registerSignalsWebhookRoutes } from "./api/routes/signalsWebhook.js";
+import { registerMcpHttpRoutes } from "./mcp/http.js";
 
 export const buildServer = async (
   config: AppConfig,
@@ -98,7 +99,9 @@ export const buildServer = async (
   const resolvers: IdentityResolver[] = [];
   if (config.auth.googleOAuthClientId) {
     const roleResolver = coreStore
-      ? createDbRoleResolver(coreStore)
+      ? createDbRoleResolver(coreStore, {
+          autoProvisionDomains: config.auth.allowedGoogleDomains,
+        })
       : placeholderRoleResolver;
 
     if (!coreStore && config.env === "development") {
@@ -213,6 +216,27 @@ export const buildServer = async (
 
   registerHealthRoutes(app, connectors, coreStore);
   registerMeRoutes(app, auth);
+
+  if (config.auth.googleOAuthClientId || config.auth.allowMockAuth) {
+    registerMcpHttpRoutes(app, {
+      services: {
+        startups,
+        society,
+        companyContext,
+        signalHub: signalHubService,
+        competitiveHistory,
+        companyActivitySummary,
+        findLatestDeck,
+        companyDriveFolder,
+        boardBrief,
+        portfolioSignalDigest,
+      },
+      auditor,
+      auth,
+    });
+    app.log.info("MCP Streamable HTTP enabled at /mcp");
+  }
+
   registerSocietyRoutes(app, auth, society);
   registerInternalRoutes(app, auth, boardBrief);
   registerConnectorRoutes(app, auth, startups);

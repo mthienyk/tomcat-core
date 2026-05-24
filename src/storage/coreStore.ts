@@ -99,6 +99,8 @@ export interface CoreStore {
 
   // Users (internal Tomcat employees, for DB role resolver)
   upsertUser(user: UserRecord): Promise<void>;
+  insertUserIfAbsent(user: UserRecord): Promise<boolean>;
+  findUserByEmail(email: string): Promise<UserRecord | undefined>;
   getUserByEmail(email: string): Promise<UserRecord | undefined>;
   listUsers(): Promise<UserRecord[]>;
 }

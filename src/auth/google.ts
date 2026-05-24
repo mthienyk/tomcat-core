@@ -31,7 +31,10 @@ export const createGoogleHumanResolver = (
       return await verifyGoogleIdToken(opts, token);
     } catch (error) {
       if (error instanceof CoreError) throw error;
-      throw AuthInvalid("Invalid Google ID token");
+      throw AuthInvalid("Invalid or expired Google ID token", {
+        reason: "invalid_token",
+        nextAction: "run_npm_auth_token",
+      });
     }
   },
 });

@@ -4,6 +4,7 @@ import { AuthRequired, BadRequest } from "../../errors/index.js";
 import type { BoardBriefService } from "../../services/boardBrief.js";
 import type { CoreStore } from "../../storage/coreStore.js";
 import type { AuthMiddleware } from "../middlewareTypes.js";
+import { normalizeEmail } from "../../auth/email.js";
 
 const BoardPrepBody = z.object({ portfolioCompanyId: z.string().min(1) });
 
@@ -105,7 +106,7 @@ export const registerAdminRoutes = (
         throw BadRequest("Invalid user body", { issues: parsed.error.issues });
       }
       const user = {
-        email: parsed.data.email,
+        email: normalizeEmail(parsed.data.email),
         role: parsed.data.role as import("../../domain/identity.js").Role,
         team: parsed.data.team,
         active: parsed.data.active,

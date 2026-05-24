@@ -1,14 +1,56 @@
 import type { RoleResolver } from "./roleResolver.js";
-import type { CoreStore } from "../storage/coreStore.js";
+import type { CoreStore, UserRecord } from "../storage/coreStore.js";
 import { AuthInvalid } from "../errors/index.js";
+import { accessRevokedMessage } from "./authHints.js";
+import { emailDomain, normalizeEmail } from "./email.js";
 
-export const createDbRoleResolver = (store: CoreStore): RoleResolver =>
+export type DbRoleResolverOptions = {
+  autoProvisionDomains: string[];
+};
+
+export const createDbRoleResolver = (
+  store: CoreStore,
+  opts: DbRoleResolverOptions,
+): RoleResolver =>
   async (email: string) => {
-    const user = await store.getUserByEmail(email);
-    if (!user) {
+    const normalizedEmail = normalizeEmail(email);
+    const existing = await store.findUserByEmail(normalizedEmail);
+    if (existing) {
+      if (!existing.active) {
+        throw AuthInvalid(accessRevokedMessage(normalizedEmail), {
+          reason: "access_revoked",
+        });
+      }
+      return { role: existing.role, team: existing.team };
+    }
+
+    const domain = emailDomain(normalizedEmail);
+    if (!opts.autoProvisionDomains.includes(domain)) {
       throw AuthInvalid(
-        `No active Tomcat user record for "${email}". Ask an admin to add you via POST /internal/users.`,
+        `No Tomcat user record for "${normalizedEmail}". Ask an admin to add you via POST /internal/users.`,
+        { reason: "user_not_provisioned" },
       );
     }
-    return { role: user.role, team: user.team };
+
+    const provisioned: UserRecord = {
+      email: normalizedEmail,
+      role: "internal_team",
+      team: undefined,
+      active: true,
+    };
+    await store.insertUserIfAbsent(provisioned);
+
+    const resolved = await store.findUserByEmail(normalizedEmail);
+    if (!resolved) {
+      throw AuthInvalid(
+        `Could not provision Tomcat user for "${normalizedEmail}". Retry or contact an admin.`,
+        { reason: "user_not_provisioned" },
+      );
+    }
+    if (!resolved.active) {
+      throw AuthInvalid(accessRevokedMessage(normalizedEmail), {
+        reason: "access_revoked",
+      });
+    }
+    return { role: resolved.role, team: resolved.team };
   };
