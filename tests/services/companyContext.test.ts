@@ -230,7 +230,17 @@ describe("companyContext.listCompanyCrmActivity", () => {
     expect(startups.listAccessibleNotes).toHaveBeenCalledWith(
       internalCaller,
       { startupName: "Atlas" },
-      undefined,
+      { limit: 15 },
+    );
+    expect(startups.listAccessibleDeals).toHaveBeenCalledWith(
+      internalCaller,
+      { startupName: "Atlas" },
+      { limit: 10 },
+    );
+    expect(startups.listAccessibleMeetings).toHaveBeenCalledWith(
+      internalCaller,
+      { startupName: "Atlas" },
+      { limit: 10 },
     );
     expect(result.warnings.some((w) => /board-derived/i.test(w))).toBe(true);
   });
@@ -319,6 +329,31 @@ describe("companyContext.listCompanyDocuments", () => {
     const result = await service.listCompanyDocuments(internalCaller, "Atlas");
     expect(result.documents).toEqual([]);
     expect(result.warnings.some((w) => /No Drive files/i.test(w))).toBe(true);
+  });
+
+  it("omits binary files by default and exposes relevance metadata", async () => {
+    const { service } = buildBundle({
+      driveFiles: [
+        {
+          id: "pdf_1",
+          driveFileId: "pdf_1",
+          title: "Legal PV.pdf",
+          createdAt: "2026-05-01",
+          mimeType: "application/pdf",
+        },
+        {
+          id: "deck_1",
+          driveFileId: "deck_1",
+          title: "Atlas pitch deck",
+          createdAt: "2026-04-01",
+        },
+      ],
+    });
+    const result = await service.listCompanyDocuments(internalCaller, "Atlas");
+    expect(result.documents).toHaveLength(1);
+    expect(result.documents[0]?.driveFileId).toBe("deck_1");
+    expect(result.documents[0]?.relevance).toBe("deck");
+    expect(result.documents[0]?.textExtractable).toBe(true);
   });
 });
 

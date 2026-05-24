@@ -36,7 +36,15 @@ export type DriveItemRef = {
 export interface DriveConnector {
   listBoardPacksForCompany(
     portfolioCompanyId: string,
-  ): Promise<{ id: string; title: string; driveFileId: string; createdAt: string }[]>;
+  ): Promise<
+    {
+      id: string;
+      title: string;
+      driveFileId: string;
+      createdAt: string;
+      mimeType?: string;
+    }[]
+  >;
   listCompanyFolders(portfolioCompanyId: string): Promise<DriveFolderRef[]>;
   listFolderChildren(driveFolderId: string): Promise<DriveItemRef[]>;
   resolveItemPath(driveItemId: string): Promise<string>;

@@ -71,6 +71,12 @@ const fakeServices = (
     portfolioSignalDigest: {
       generatePortfolioSignalDigest: vi.fn(),
     },
+    companyActivitySummary: {
+      summarizeCompanyActivity: vi.fn(),
+    },
+    findLatestDeck: {
+      findLatestDeck: vi.fn(),
+    },
   }) as unknown as AgentToolServices;
 
 const startConnectedClient = async (services: AgentToolServices) => {

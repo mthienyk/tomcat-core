@@ -170,6 +170,62 @@ const stubServices = (): AgentToolServices => ({
       warnings: [],
     }),
   } as AgentToolServices["boardBrief"],
+  portfolioSignalDigest: {
+    generatePortfolioSignalDigest: async () => ({
+      data: {
+        period: { sinceDays: 7, sinceIso: "", untilIso: "" },
+        scope: {
+          portfolioCompanyCount: 0,
+          scopedCompanyCount: 0,
+          watchedEntityCount: 0,
+          quietCompaniesOmitted: 0,
+        },
+        companies: [],
+        unlinkedLinkedInSignals: [],
+        summary: {
+          totalFacts: 0,
+          companiesWithActivity: 0,
+          companiesQuiet: 0,
+        },
+      },
+      citations: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["portfolioSignalDigest"],
+  companyActivitySummary: {
+    summarizeCompanyActivity: async () => ({
+      data: {
+        startupId: "hs_demo",
+        canonicalName: "DemoCo",
+        portfolioCompanyId: undefined,
+        profile: { sectors: ["saas"], stage: "seed", country: "FR" },
+        summary: {
+          factsReturned: 0,
+          notesScanned: 0,
+          dealsScanned: 0,
+          meetingsScanned: 0,
+          activePipelineDeals: 0,
+          lastActivityAt: undefined,
+        },
+        facts: [],
+      },
+      citations: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["companyActivitySummary"],
+  findLatestDeck: {
+    findLatestDeck: async () => ({
+      data: {
+        portfolioCompanyId: "DemoCo",
+        startupId: "hs_demo",
+        canonicalName: "DemoCo",
+        deck: null,
+        alternates: [],
+      },
+      citations: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["findLatestDeck"],
 });
 
 type Scenario = {

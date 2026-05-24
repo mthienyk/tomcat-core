@@ -1121,7 +1121,10 @@ type SuggestedToolCall = {
 | Code | Quand | Mitigation suggérée |
 | --- | --- | --- |
 | `MONDAY_SIGNALS_EMPTY` | Board prep sans signaux Monday | `signal_hub_recent_signals` |
-| `DRIVE_PDF_NOT_EXTRACTABLE` | PDF scan sans OCR | Upload excerpt manuel |
+| `DRIVE_PDF_NOT_EXTRACTABLE` | PDF scan sans OCR (legacy) | Upload excerpt manuel |
+| `DRIVE_BINARY_NOT_EXTRACTABLE` | PDF, XLSX, PPTX non extractibles | Ouvrir le fichier Drive directement |
+| `DRIVE_DECK_NOT_FOUND` | Fichiers Drive présents mais aucun deck/BP matché | `list_company_documents` ou `resolve_company_drive_folder` |
+| `DRIVE_FOLDER_NOT_FOUND` | Aucun fichier indexé pour le token Drive | `resolve_company_drive_folder` + alias store |
 | `PORTFOLIO_LINK_MISSING` | Startup HubSpot sans lien Monday | `resolve_entity` + nom alternatif |
 | `CONNECTOR_DEGRADED` | HubSpot timeout partiel | Retry ; données partielles citées |
 

@@ -197,6 +197,7 @@ export const createHttpDriveConnector = (
           title: f.name,
           driveFileId: f.id,
           createdAt: f.createdTime,
+          mimeType: f.mimeType,
         }));
       } catch (err) {
         if (err instanceof CoreError) throw err;

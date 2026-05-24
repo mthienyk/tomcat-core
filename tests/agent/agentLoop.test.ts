@@ -77,6 +77,15 @@ const fakeServices = (): AgentToolServices =>
       prepareLegacyBoardPrepContext: vi.fn(),
       legacyBoardPrepBody: vi.fn(),
     },
+    portfolioSignalDigest: {
+      generatePortfolioSignalDigest: vi.fn(),
+    },
+    companyActivitySummary: {
+      summarizeCompanyActivity: vi.fn(),
+    },
+    findLatestDeck: {
+      findLatestDeck: vi.fn(),
+    },
   }) as unknown as AgentToolServices;
 
 describe("runAgentLoop", () => {

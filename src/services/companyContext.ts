@@ -12,6 +12,11 @@ import type {
 } from "../domain/entities.js";
 import type { StartupsService } from "./startups.js";
 import type { SocietyService } from "./society.js";
+import {
+  CRM_ACTIVITY_DEFAULT_LIMITS,
+  clampCrmLimit,
+} from "./crmActivityLimits.js";
+import { prepareDriveDocumentList } from "./driveDocuments.js";
 
 const normalizeKey = (value: string): string => value.trim().toLowerCase();
 
@@ -35,6 +40,9 @@ export type ListCompanyDocumentsOutput = {
     driveFileId: string;
     title: string;
     createdAt: string;
+    relevance: string;
+    relevanceScore: number;
+    textExtractable: boolean;
     citation: { system: "drive"; externalId: string; url: undefined };
   }>;
   warnings: string[];
@@ -108,6 +116,7 @@ export const buildCompanyContextService = (deps: {
     options?: {
       titleContains?: string | undefined;
       limit?: number | undefined;
+      includeBinaries?: boolean | undefined;
     },
   ): Promise<ListCompanyDocumentsOutput> => {
     const warnings: string[] = [];
@@ -121,18 +130,27 @@ export const buildCompanyContextService = (deps: {
       filtered = filtered.filter((f) => f.title.toLowerCase().includes(k));
     }
 
-    const limit = Math.min(options?.limit ?? 25, 100);
-    if (filtered.length > limit) {
-      warnings.push(
-        `Document list truncated to ${String(limit)} items. Narrow titleContains if needed.`,
-      );
-      filtered = filtered.slice(0, limit);
-    }
+    const prepared = prepareDriveDocumentList(
+      filtered.map((file) => ({
+        driveFileId: file.driveFileId,
+        title: file.title,
+        createdAt: file.createdAt,
+        ...(file.mimeType !== undefined ? { mimeType: file.mimeType } : {}),
+      })),
+      {
+        includeBinaries: options?.includeBinaries ?? false,
+        limit: options?.limit ?? 25,
+      },
+    );
+    warnings.push(...prepared.warnings);
 
-    const documents = filtered.map((file) => ({
+    const documents = prepared.documents.map((file) => ({
       driveFileId: file.driveFileId,
       title: file.title,
       createdAt: file.createdAt,
+      relevance: file.relevance,
+      relevanceScore: file.relevanceScore,
+      textExtractable: file.textExtractable,
       citation: {
         system: "drive" as const,
         externalId: file.driveFileId,
@@ -369,14 +387,26 @@ export const buildCompanyContextService = (deps: {
         throw BadRequest("Provide startupId, startupName or portfolioCompanyId.");
       }
 
-      const listOptsNotes = args.notesLimit !== undefined
-        ? { limit: args.notesLimit }
-        : undefined;
-      const listOptsDeals = args.dealsLimit !== undefined
-        ? { limit: args.dealsLimit }
-        : undefined;
-      const listOptsMeetings = args.meetingsLimit !== undefined
-        ? { limit: args.meetingsLimit }
+      const notesLimit = clampCrmLimit(
+        args.notesLimit,
+        CRM_ACTIVITY_DEFAULT_LIMITS.notes,
+        200,
+      );
+      const dealsLimit = clampCrmLimit(
+        args.dealsLimit,
+        CRM_ACTIVITY_DEFAULT_LIMITS.deals,
+        200,
+      );
+      const meetingsLimit = clampCrmLimit(
+        args.meetingsLimit,
+        CRM_ACTIVITY_DEFAULT_LIMITS.meetings,
+        200,
+      );
+
+      const listOptsNotes = args.includeNotes ? { limit: notesLimit } : undefined;
+      const listOptsDeals = args.includeDeals ? { limit: dealsLimit } : undefined;
+      const listOptsMeetings = args.includeMeetings
+        ? { limit: meetingsLimit }
         : undefined;
 
       const notes = args.includeNotes

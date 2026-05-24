@@ -1,7 +1,7 @@
 import { BadRequest, NotFound } from "../errors/index.js";
 import type { Connectors } from "../connectors/registry.js";
 import type { Identity } from "../domain/identity.js";
-import type { Citation, Deal, Meeting, Note, PortfolioSignal } from "../domain/entities.js";
+import type { Citation, Deal, Meeting, Note, PortfolioSignal, Startup } from "../domain/entities.js";
 import type { SignalEvent } from "../domain/signalHub.js";
 import {
   ToolWarningCodes,
@@ -14,6 +14,7 @@ import { canSeeSignal } from "../permissions/policies.js";
 import type { SocietyService } from "./society.js";
 import type { StartupsService } from "./startups.js";
 import type { SignalHubService } from "./signalHub/index.js";
+import { prepareDriveDocumentList } from "./driveDocuments.js";
 
 export type PrepChecklistStatus = "ready" | "missing" | "review";
 
@@ -304,24 +305,53 @@ export const buildBoardBriefService = (deps: {
     portfolioCompanyId: string;
     startupId: string;
     canonicalName: string;
+    mondayLinked: boolean;
   }> => {
     const portfolio = await connectors.monday.listPortfolio();
 
+    const resolveHubspotFromPortfolioToken = async (
+      token: string,
+    ): Promise<Startup | undefined> => {
+      const matches = await startups.searchStartups(
+        caller,
+        { startupName: token },
+        { limit: 5 },
+      );
+      if (matches.length === 1) return matches[0];
+      const exact = matches.filter(
+        (item) => normalizeKey(item.name) === normalizeKey(token),
+      );
+      return exact.length === 1 ? exact[0] : undefined;
+    };
+
     if (args.portfolioCompanyId) {
       const row = portfolio.find((item) => item.id === args.portfolioCompanyId);
-      if (!row) {
+      if (row) {
+        const hubspotMatches = await startups.searchStartups(
+          caller,
+          { startupName: row.startupId },
+          { limit: 2 },
+        );
+        const hubspotStartup = hubspotMatches.length === 1 ? hubspotMatches[0] : undefined;
+        return {
+          portfolioCompanyId: row.id,
+          startupId: hubspotStartup?.id ?? row.startupId,
+          canonicalName: hubspotStartup?.name ?? row.startupId,
+          mondayLinked: true,
+        };
+      }
+
+      const hubspotStartup = await resolveHubspotFromPortfolioToken(
+        args.portfolioCompanyId,
+      );
+      if (!hubspotStartup) {
         throw NotFound(`Portfolio company ${args.portfolioCompanyId} not found`);
       }
-      const hubspotMatches = await startups.searchStartups(
-        caller,
-        { startupName: row.startupId },
-        { limit: 2 },
-      );
-      const hubspotStartup = hubspotMatches.length === 1 ? hubspotMatches[0] : undefined;
       return {
-        portfolioCompanyId: row.id,
-        startupId: hubspotStartup?.id ?? row.startupId,
-        canonicalName: hubspotStartup?.name ?? row.startupId,
+        portfolioCompanyId: args.portfolioCompanyId,
+        startupId: hubspotStartup.id,
+        canonicalName: hubspotStartup.name,
+        mondayLinked: false,
       };
     }
 
@@ -354,16 +384,11 @@ export const buildBoardBriefService = (deps: {
       const row = portfolio.find(
         (item) => normalizeKey(item.startupId) === normalizeKey(hubspotStartup.name),
       );
-      if (!row) {
-        throw BadRequest(
-          "No Monday portfolio identifier linked to this startup. Call resolve_entity.",
-          { startupId: hubspotStartup.id, startupName: hubspotStartup.name },
-        );
-      }
       return {
-        portfolioCompanyId: row.id,
+        portfolioCompanyId: row?.id ?? hubspotStartup.name,
         startupId: hubspotStartup.id,
         canonicalName: hubspotStartup.name,
+        mondayLinked: row !== undefined,
       };
     }
 
@@ -438,9 +463,10 @@ export const buildBoardBriefService = (deps: {
         .filter((signal: PortfolioSignal) => signal.kind === "risk")
         .map((signal) => signal.summary);
 
-      const sortedDriveFiles = [...driveFiles].sort((left, right) =>
-        right.createdAt.localeCompare(left.createdAt),
-      );
+      const sortedDriveFiles = prepareDriveDocumentList(driveFiles, {
+        includeBinaries: true,
+        limit: driveDocsLimit,
+      }).documents;
       const boardPacks = sortedDriveFiles.filter((file) =>
         isBoardPackTitle(file.title),
       );
@@ -553,6 +579,16 @@ export const buildBoardBriefService = (deps: {
       ];
 
       const warnings: ToolWarning[] = [];
+      if (!company.mondayLinked) {
+        warnings.push({
+          code: ToolWarningCodes.PORTFOLIO_LINK_MISSING,
+          message:
+            "No Monday portfolio row linked; brief uses HubSpot + Drive with the startup name as the Drive token.",
+          mitigation:
+            "Call resolve_entity once Monday linkage is restored, or pass portfolioCompanyId explicitly.",
+        });
+      }
+
       const mondayEmpty = mondayHighlights.length === 0 && mondayRisks.length === 0;
       const hasOtherSources =
         recentNotes.length > 0 ||

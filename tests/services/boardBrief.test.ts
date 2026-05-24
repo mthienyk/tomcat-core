@@ -251,6 +251,76 @@ describe("boardBrief service", () => {
     );
   });
 
+  it("builds a partial brief when Monday linkage is missing", async () => {
+    const wenabiStartup: Startup = {
+      id: "9426764108",
+      name: "Wenabi",
+      sectors: ["climate"],
+      stage: "unknown",
+      country: "FR",
+      description: undefined,
+      visibilityTier: "internal_only",
+      sources: [{ system: "hubspot", externalId: "9426764108", url: undefined }],
+    };
+
+    const society = {
+      ensurePortfolioCompanyInScope: vi.fn(async () => undefined),
+    };
+    const startups = {
+      searchStartups: vi.fn(async () => [wenabiStartup]),
+      listAccessibleNotes: vi.fn(async () => [
+        {
+          id: "note_1",
+          startupId: "9426764108",
+          authorEmail: "elie@tomcat.eu",
+          body: "Recent board context from CRM.",
+          sensitivity: "internal",
+          createdAt: "2026-05-10",
+          source: { system: "hubspot", externalId: "note_1", url: undefined },
+        },
+      ]),
+      listAccessibleDeals: vi.fn(async () => []),
+      listAccessibleMeetings: vi.fn(async () => []),
+    };
+    const signalHub = { listEvents: vi.fn(async () => []) };
+    const connectors = {
+      monday: {
+        listPortfolio: vi.fn(async () => []),
+        listSignals: vi.fn(async () => []),
+      },
+      drive: {
+        listBoardPacksForCompany: vi.fn(async () => [
+          {
+            id: "deck_1",
+            title: "Wenabi board pack Q1",
+            driveFileId: "deck_1",
+            createdAt: "2026-04-01T00:00:00Z",
+          },
+        ]),
+      },
+      hubspot: {} as never,
+      investors: {} as never,
+    } as unknown as Connectors;
+
+    const service = buildBoardBriefService({
+      connectors,
+      startups: startups as unknown as StartupsService,
+      society: society as unknown as SocietyService,
+      signalHub: signalHub as unknown as SignalHubService,
+    });
+
+    const result = await service.prepareBoardBrief(caller, {
+      startupId: "9426764108",
+    });
+
+    expect(result.data.portfolioCompanyId).toBe("Wenabi");
+    expect(result.data.crmTimeline.recentNotes).toHaveLength(1);
+    expect(result.data.driveDocuments.latestBoardPack?.driveFileId).toBe("deck_1");
+    expect(result.warnings.some((w) => w.code === "PORTFOLIO_LINK_MISSING")).toBe(
+      true,
+    );
+  });
+
   it("projects legacy HTTP body from the same orchestration path", async () => {
     const { service } = buildService({
       signals: [

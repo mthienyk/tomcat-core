@@ -48,11 +48,12 @@ export const TOOL_DESCRIPTIONS = {
       "warnings — linkage gaps between HubSpot and Monday",
     ],
     nextTools: [
-      { name: "build_company_360_context", when: "Single candidate confirmed" },
-      { name: "resolve_company_drive_folder", when: "Drive folder or M2/BP inputs needed" },
-      { name: "list_company_crm_activity", when: "CRM timeline only" },
-      { name: "prepare_board_brief", when: "Board or portfolio prep (preferred)" },
-      { name: "build_board_prep_context", when: "Legacy minimal board context only" },
+      { name: "summarize_company_activity", when: "Single candidate confirmed — default CRM read" },
+      { name: "find_latest_deck", when: "User asks for deck, pitch, or BP" },
+      { name: "find_competitive_history", when: "Compare against prior deals in the same sector" },
+      { name: "list_company_documents", when: "Browse all Drive docs, not just deck" },
+      { name: "prepare_board_brief", when: "Explicit board or comité prep only" },
+      { name: "list_company_crm_activity", when: "Full raw CRM dump needed (prefer summarize first)" },
     ],
     limitations: [
       "HubSpot ↔ Monday linkage is name-based and may be incomplete",
@@ -247,13 +248,84 @@ export const TOOL_DESCRIPTIONS = {
     approvalRequired: false,
   }),
 
+  find_latest_deck: meta({
+    summary:
+      "Returns the most recent deck-like Drive file (pitch, BP, Slides) for a company, "
+      + "with ranked alternates and an optional text excerpt when extractable.",
+    whenToUse: [
+      "« Quel est le dernier deck de [Boîte] ? »",
+      "« Montre-moi le pitch / BP »",
+      "After resolve_entity when the user wants presentation materials, not a full doc list",
+    ],
+    inputTips: [
+      "Prefer startupId from resolve_entity; portfolioCompanyId is the Drive folder token",
+      "maxExcerptChars — default 4000, max 12000",
+      "alternateLimit — other ranked deck candidates (default 3)",
+    ],
+    output: [
+      "ToolRunEnvelope: deck (primary), alternates[], citations with driveFileId",
+      "Warnings when folder token mismatches HubSpot name or file is binary PDF",
+      "nextSuggestedTools for read_company_document_excerpt or resolve_company_drive_folder",
+    ],
+    nextTools: [
+      { name: "read_company_document_excerpt", when: "Need a longer excerpt from the cited file" },
+      { name: "summarize_company_activity", when: "Cross-check CRM context against the deck" },
+      { name: "resolve_company_drive_folder", when: "Deck search missed — browse the folder" },
+      { name: "list_company_documents", when: "User wants all docs, not just decks" },
+    ],
+    limitations: [
+      "Ranking prefers pitch/deck over financial BP when both exist",
+      "Title-based matching; PDF decks without deck/pitch/BP in the name may be missed",
+      "Binary files (PDF, XLSX, PPTX) return metadata only unless Google native format",
+    ],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  summarize_company_activity: meta({
+    summary:
+      "Default CRM read: ranked top facts (notes, deals, meetings) for one startup "
+      + "in a single mini-livrable. Prefer this over chaining raw CRM tools.",
+    whenToUse: [
+      "« Que sait-on de [Boîte] ? »",
+      "« Où en est le deal ? »",
+      "After resolve_entity when the user wants CRM context, not a board pack",
+      "Pre-M1/M2 quick context before deeper reads",
+    ],
+    inputTips: [
+      "Prefer startupId from resolve_entity",
+      "factLimit — default 12 ranked facts, max 25",
+      "notesLimit / dealsLimit / meetingsLimit — scan window before ranking",
+    ],
+    output: [
+      "ToolRunEnvelope: profile, summary stats, facts[] ranked by recency × relevance",
+      "Each fact has kind, headline, occurredAt, citation",
+      "nextSuggestedTools for competitive history and Drive docs",
+    ],
+    nextTools: [
+      { name: "find_competitive_history", when: "Sector peers or prior Tomcat memory needed" },
+      { name: "find_latest_deck", when: "User asks for deck, pitch, or presentation" },
+      { name: "list_company_documents", when: "Browse all Drive docs, not just deck" },
+      { name: "read_startup_notes", when: "Full note bodies beyond ranked excerpts" },
+      { name: "prepare_board_brief", when: "User explicitly asks for board prep" },
+    ],
+    limitations: [
+      "Rule-based ranking today, not LLM synthesis inside the tool",
+      "Does not read Drive or Signal Hub — CRM only",
+    ],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
   list_company_crm_activity: meta({
     summary:
-      "Batch-read HubSpot notes, deals, and meetings for one company in a single call. "
-      + "Efficient CRM timeline reconstruction.",
+      "Raw CRM batch read: notes, deals, and meetings for one company. "
+      + "Prefer summarize_company_activity unless you need the full unparsed timeline.",
     whenToUse: [
-      "« What happened with this company in CRM? »",
-      "After resolve_entity when you need deals + notes + meetings together",
+      "Full CRM dump when summarize_company_activity is too selective",
+      "Export-style timeline reconstruction",
     ],
     inputTips: [
       "Prefer startupId from resolve_entity",

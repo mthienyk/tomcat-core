@@ -23,6 +23,8 @@ import { createDb } from "./storage/pgClient.js";
 import { runPgMigrations } from "./storage/pgMigrations.js";
 import { bootstrapSignalHub } from "./services/signalHub/bootstrap.js";
 import { buildCompetitiveHistoryService } from "./services/competitiveHistory.js";
+import { buildCompanyActivitySummaryService } from "./services/companyActivitySummary.js";
+import { buildFindLatestDeckService } from "./services/findLatestDeck.js";
 import { buildCompanyDriveFolderService } from "./services/companyDriveFolder.js";
 import { buildBoardBriefService } from "./services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "./services/portfolioSignalDigest.js";
@@ -138,6 +140,12 @@ export const buildServer = async (
   });
 
   const competitiveHistory = buildCompetitiveHistoryService({ startups });
+  const companyActivitySummary = buildCompanyActivitySummaryService({ startups });
+  const findLatestDeck = buildFindLatestDeckService({
+    connectors,
+    startups,
+    society,
+  });
   const companyDriveFolder = buildCompanyDriveFolderService({
     connectors,
     startups,
@@ -228,6 +236,8 @@ export const buildServer = async (
       companyContext,
       signalHub: signalHubService,
       competitiveHistory,
+      companyActivitySummary,
+      findLatestDeck,
       companyDriveFolder,
       boardBrief,
       portfolioSignalDigest,

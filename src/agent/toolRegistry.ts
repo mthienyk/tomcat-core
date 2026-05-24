@@ -16,6 +16,8 @@ import type { CompetitiveHistoryService } from "../services/competitiveHistory.j
 import type { CompanyDriveFolderService } from "../services/companyDriveFolder.js";
 import type { BoardBriefService } from "../services/boardBrief.js";
 import type { PortfolioSignalDigestService } from "../services/portfolioSignalDigest.js";
+import type { FindLatestDeckService } from "../services/findLatestDeck.js";
+import type { CompanyActivitySummaryService } from "../services/companyActivitySummary.js";
 import type { AgentToolAccess } from "../domain/agentTools.js";
 import { formatToolDescription } from "../mcp/toolMeta.js";
 import { TOOL_DESCRIPTIONS } from "./toolCopy.js";
@@ -29,6 +31,8 @@ export type AgentToolServices = {
   companyDriveFolder: CompanyDriveFolderService;
   boardBrief: BoardBriefService;
   portfolioSignalDigest: PortfolioSignalDigestService;
+  companyActivitySummary: CompanyActivitySummaryService;
+  findLatestDeck: FindLatestDeckService;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -146,6 +150,28 @@ const ResolveEntityArgs = z
   })
   .strict();
 
+const FindLatestDeckArgs = z
+  .object({
+    portfolioCompanyId: z.string().min(1).optional(),
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    maxExcerptChars: z.number().int().positive().max(12_000).optional(),
+    alternateLimit: z.number().int().positive().max(8).optional(),
+  })
+  .strict();
+
+const SummarizeCompanyActivityArgs = z
+  .object({
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    portfolioCompanyId: z.string().min(1).optional(),
+    factLimit: z.number().int().positive().max(25).optional(),
+    notesLimit: z.number().int().positive().max(50).optional(),
+    dealsLimit: z.number().int().positive().max(50).optional(),
+    meetingsLimit: z.number().int().positive().max(50).optional(),
+  })
+  .strict();
+
 const ListCompanyCrmActivityArgs = z
   .object({
     startupId: z.string().min(1).optional(),
@@ -165,6 +191,7 @@ const ListCompanyDocumentsArgs = z
     portfolioCompanyId: z.string().min(1),
     titleContains: z.string().min(1).optional(),
     limit: z.number().int().positive().max(100).optional(),
+    includeBinaries: z.boolean().optional(),
   })
   .strict();
 
@@ -459,6 +486,78 @@ export const AGENT_TOOL_REGISTRY = [
       ),
   }),
   defineAgentTool({
+    name: "find_latest_deck",
+    title: "Find Latest Deck",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.find_latest_deck),
+
+    labels: ["drive", "documents", "deck"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: FindLatestDeckArgs,
+    execute: async ({ services, caller, args }) => {
+      const hasSelector = args.portfolioCompanyId !== undefined ||
+        args.startupId !== undefined ||
+        args.startupName !== undefined;
+      if (!hasSelector) {
+        throw BadRequest(
+          "Provide portfolioCompanyId or startupId/startupName after resolve_entity.",
+        );
+      }
+      return services.findLatestDeck.findLatestDeck(caller, {
+        ...(args.portfolioCompanyId !== undefined
+          ? { portfolioCompanyId: args.portfolioCompanyId }
+          : {}),
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined
+          ? { startupName: args.startupName }
+          : {}),
+        ...(args.maxExcerptChars !== undefined
+          ? { maxExcerptChars: args.maxExcerptChars }
+          : {}),
+        ...(args.alternateLimit !== undefined
+          ? { alternateLimit: args.alternateLimit }
+          : {}),
+      });
+    },
+  }),
+  defineAgentTool({
+    name: "summarize_company_activity",
+    title: "Summarize Company Activity",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.summarize_company_activity),
+
+    labels: ["crm", "hubspot", "summary"],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: SummarizeCompanyActivityArgs,
+    execute: async ({ services, caller, args }) => {
+      const hasSelector = args.startupId !== undefined ||
+        args.startupName !== undefined ||
+        args.portfolioCompanyId !== undefined;
+      if (!hasSelector) {
+        throw BadRequest(
+          "Provide startupId, startupName, or portfolioCompanyId after resolve_entity.",
+        );
+      }
+      return services.companyActivitySummary.summarizeCompanyActivity(caller, {
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined
+          ? { startupName: args.startupName }
+          : {}),
+        ...(args.portfolioCompanyId !== undefined
+          ? { portfolioCompanyId: args.portfolioCompanyId }
+          : {}),
+        ...(args.factLimit !== undefined ? { factLimit: args.factLimit } : {}),
+        ...(args.notesLimit !== undefined ? { notesLimit: args.notesLimit } : {}),
+        ...(args.dealsLimit !== undefined ? { dealsLimit: args.dealsLimit } : {}),
+        ...(args.meetingsLimit !== undefined
+          ? { meetingsLimit: args.meetingsLimit }
+          : {}),
+      });
+    },
+  }),
+  defineAgentTool({
     name: "list_company_crm_activity",
     title: "List Company CRM Activity",
     description: formatToolDescription(TOOL_DESCRIPTIONS.list_company_crm_activity),
@@ -482,12 +581,19 @@ export const AGENT_TOOL_REGISTRY = [
     approvalRequired: false,
     inputSchema: ListCompanyDocumentsArgs,
     execute: async ({ services, caller, args }) => {
-      const docOptions: { titleContains?: string; limit?: number } = {};
+      const docOptions: {
+        titleContains?: string;
+        limit?: number;
+        includeBinaries?: boolean;
+      } = {};
       if (args.titleContains !== undefined) {
         docOptions.titleContains = args.titleContains;
       }
       if (args.limit !== undefined) {
         docOptions.limit = args.limit;
+      }
+      if (args.includeBinaries !== undefined) {
+        docOptions.includeBinaries = args.includeBinaries;
       }
       return services.companyContext.listCompanyDocuments(
         caller,

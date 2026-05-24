@@ -12,6 +12,8 @@ import type { CompetitiveHistoryService } from "./competitiveHistory.js";
 import type { CompanyDriveFolderService } from "./companyDriveFolder.js";
 import type { BoardBriefService } from "./boardBrief.js";
 import type { PortfolioSignalDigestService } from "./portfolioSignalDigest.js";
+import type { CompanyActivitySummaryService } from "./companyActivitySummary.js";
+import type { FindLatestDeckService } from "./findLatestDeck.js";
 
 export type AiQueryResult = {
   provider: LlmProviderName;
@@ -34,6 +36,8 @@ export type AiServiceDeps = {
   companyDriveFolder: CompanyDriveFolderService;
   boardBrief: BoardBriefService;
   portfolioSignalDigest: PortfolioSignalDigestService;
+  companyActivitySummary: CompanyActivitySummaryService;
+  findLatestDeck: FindLatestDeckService;
   auditor: Auditor;
 };
 
@@ -67,6 +71,8 @@ export const buildAiService = (deps: AiServiceDeps) => ({
         companyDriveFolder: deps.companyDriveFolder,
         boardBrief: deps.boardBrief,
         portfolioSignalDigest: deps.portfolioSignalDigest,
+        companyActivitySummary: deps.companyActivitySummary,
+        findLatestDeck: deps.findLatestDeck,
       },
       caller,
       auditor: deps.auditor,

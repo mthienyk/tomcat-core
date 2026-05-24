@@ -23,6 +23,20 @@ type ListOptions = {
 const MAX_LIMIT = 200;
 const DEFAULT_DISCOVERY_LIMIT = 25;
 const DEFAULT_ACTIVITY_LIMIT = 50;
+const VISIBLE_STARTUPS_CACHE_TTL_MS = 60_000;
+
+type VisibleStartupsCacheEntry = {
+  expiresAt: number;
+  startups: Startup[];
+};
+
+const cacheKeyForCaller = (caller: Identity): string => {
+  if (caller.kind === "human") {
+    return `human:${caller.email}:${caller.role}:${caller.investorId ?? ""}`;
+  }
+  const delegated = caller.onBehalfOf;
+  return `service:${caller.clientId}:${delegated?.investorId ?? ""}:${delegated?.role ?? ""}`;
+};
 
 const normalize = (value: string): string => value.trim().toLowerCase();
 
@@ -33,9 +47,22 @@ const clampLimit = (limit: number | undefined, fallback: number): number => {
 
 export const buildStartupsService = (deps: { connectors: Connectors }) => {
   const { connectors } = deps;
+  const visibleStartupsCache = new Map<string, VisibleStartupsCacheEntry>();
+
   const listVisibleStartups = async (caller: Identity): Promise<Startup[]> => {
+    const cacheKey = cacheKeyForCaller(caller);
+    const hit = visibleStartupsCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) {
+      return hit.startups;
+    }
+
     const all = await connectors.hubspot.listStartups();
-    return all.filter((startup) => canSeeStartup(caller, startup));
+    const visible = all.filter((startup) => canSeeStartup(caller, startup));
+    visibleStartupsCache.set(cacheKey, {
+      startups: visible,
+      expiresAt: Date.now() + VISIBLE_STARTUPS_CACHE_TTL_MS,
+    });
+    return visible;
   };
 
   const resolveStartup = (

@@ -3,10 +3,16 @@ import pino from "pino";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "../src/config/env.js";
 import { buildConnectors } from "../src/connectors/registry.js";
+import { buildStoreBackedConnectors } from "../src/connectors/storeBacked.js";
+import { createDb } from "../src/storage/pgClient.js";
+import { runPgMigrations } from "../src/storage/pgMigrations.js";
+import { createPgCoreStore } from "../src/storage/pgCoreStore.js";
 import { buildSocietyService } from "../src/services/society.js";
 import { buildStartupsService } from "../src/services/startups.js";
 import { buildCompanyContextService } from "../src/services/companyContext.js";
 import { buildCompetitiveHistoryService } from "../src/services/competitiveHistory.js";
+import { buildCompanyActivitySummaryService } from "../src/services/companyActivitySummary.js";
+import { buildFindLatestDeckService } from "../src/services/findLatestDeck.js";
 import { buildCompanyDriveFolderService } from "../src/services/companyDriveFolder.js";
 import { buildBoardBriefService } from "../src/services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "../src/services/portfolioSignalDigest.js";
@@ -22,7 +28,15 @@ const logger = pino(
 
 const main = async (): Promise<void> => {
   const config = loadConfig();
-  const connectors = buildConnectors(config);
+  const httpConnectors = buildConnectors(config);
+  let connectors = httpConnectors;
+  if (config.database.url) {
+    const pgDb = createDb(config.database.url);
+    await runPgMigrations(pgDb);
+    const coreStore = await createPgCoreStore(pgDb);
+    connectors = buildStoreBackedConnectors(coreStore, httpConnectors);
+    logger.info("MCP using CoreStore-backed connectors");
+  }
   const startups = buildStartupsService({ connectors });
   const society = buildSocietyService({ connectors });
   const companyContext = buildCompanyContextService({
@@ -31,6 +45,12 @@ const main = async (): Promise<void> => {
     society,
   });
   const competitiveHistory = buildCompetitiveHistoryService({ startups });
+  const companyActivitySummary = buildCompanyActivitySummaryService({ startups });
+  const findLatestDeck = buildFindLatestDeckService({
+    connectors,
+    startups,
+    society,
+  });
 
   const signalHubStack = await bootstrapSignalHub({
     config,
@@ -63,6 +83,8 @@ const main = async (): Promise<void> => {
     companyContext,
     signalHub: signalHubStack.signalHub,
     competitiveHistory,
+    companyActivitySummary,
+    findLatestDeck,
     companyDriveFolder,
     boardBrief,
     portfolioSignalDigest,

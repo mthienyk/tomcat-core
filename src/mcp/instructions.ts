@@ -33,7 +33,9 @@ CRM activity, Drive documents, and LinkedIn signals for the investment team.
 
 | Goal | Tool chain |
 | --- | --- |
-| Board prep | resolve_entity → prepare_board_brief → read_company_document_excerpt → signal_hub_recent_signals |
+| Company CRM context | resolve_entity → summarize_company_activity |
+| Latest deck / pitch | resolve_entity → find_latest_deck |
+| Board prep (explicit) | resolve_entity → prepare_board_brief → read_company_document_excerpt |
 | Company 360 | resolve_entity → build_company_360_context |
 | Friday News / portfolio digest | generate_portfolio_signal_digest → signal_hub_recent_signals (drill-down) |
 | Competitive context | find_competitive_history → read_startup_notes on top matches |
