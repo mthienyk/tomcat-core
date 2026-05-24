@@ -106,4 +106,54 @@ describe("createHttpDriveConnector", () => {
     expect(text).toContain("binary format");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it("lists company folders and children with shared drive scope", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okJson({
+          files: [
+            {
+              id: "folder_1",
+              name: "Aistos — M2",
+              mimeType: "application/vnd.google-apps.folder",
+              createdTime: "2026-01-01T00:00:00Z",
+              modifiedTime: "2026-05-01T00:00:00Z",
+              parents: ["root"],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okJson({
+          files: [
+            {
+              id: "file_1",
+              name: "DSN.pdf",
+              mimeType: "application/pdf",
+              createdTime: "2026-04-01T00:00:00Z",
+              modifiedTime: "2026-04-01T00:00:00Z",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        okJson({ id: "folder_1", name: "Aistos — M2", parents: ["root"] }),
+      )
+      .mockResolvedValueOnce(
+        okJson({ id: "root", name: "Portfolio", parents: [] }),
+      );
+    vi.stubGlobal("fetch", fetchImpl);
+
+    const drive = createHttpDriveConnector(writeFakeCreds(), "shared-drive-id");
+    const folders = await drive.listCompanyFolders("Aistos");
+    expect(folders).toHaveLength(1);
+    expect(folders[0]?.driveFolderId).toBe("folder_1");
+
+    const children = await drive.listFolderChildren("folder_1");
+    expect(children[0]?.name).toBe("DSN.pdf");
+
+    const path = await drive.resolveItemPath("folder_1");
+    expect(path).toBe("Portfolio / Aistos — M2");
+  });
 });

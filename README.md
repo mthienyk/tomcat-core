@@ -5,6 +5,22 @@ data synchronisation, audit logs, business normalisation, and the agentic tool
 layer used by the Society platform, the team MCP, investor MCP clients, and a
 Chrome extension.
 
+## Product — Society
+
+**Society** is the private member platform (`society.tomcat.eu`). **tomcat-core**
+is its data and permissions nexus: Postgres read model, sync, API, redaction.
+
+| Doc | Contents |
+| --- | --- |
+| [docs/society.md](./docs/society.md) | Vision, auth, tiers, modules, V1 scope, performance, admin |
+| [docs/auth-google-mcp.md](./docs/auth-google-mcp.md) | Google OAuth, session, MCP auth, admin users |
+| [docs/capabilities.md](./docs/capabilities.md) | Capability catalogue and tier matrix (quick reference) |
+| [docs/mcp-use-cases.md](./docs/mcp-use-cases.md) | MCP use cases, protocol alignment, implementation guide |
+| [docs/mcp-work-status.md](./docs/mcp-work-status.md) | MCP handoff: done, in progress, next steps |
+
+Society owns member login (magic link priority, Google for `@tomcat.eu` team).
+Core recalculates access on every request; UI never decides visibility.
+
 ## Principles
 
 - No production code contains invented business data.
@@ -40,18 +56,24 @@ src/
 
 ## Identity
 
-Humans authenticate through Google OAuth. When `DATABASE_URL` is set, roles are
-resolved from the `users` table — managed via `POST /internal/users`. In
-development without a database, a placeholder resolver grants `internal_team` to
-any `@tomcat.eu` address and logs a warning.
+Humans authenticate through Google OAuth (`@tomcat.eu`, Workspace **Internal** app).
+Core verifies Google ID tokens on each protected HTTP request.
+
+When `DATABASE_URL` is set (production), roles come from the Postgres `users` table.
+**Unknown or inactive users are rejected** (fail closed). Manage users via
+`POST /internal/users` or SQL — see [docs/auth-google-mcp.md](./docs/auth-google-mcp.md).
+
+In local development without `DATABASE_URL`, a placeholder resolver grants
+`internal_team` to any `@tomcat.eu` address (with a startup warning).
 
 Machine clients authenticate with signed service JWTs (`HS256` for this V1).
 Tokens carry `iss`, `aud`, `sub`, `scope`, `iat`, `nbf` when needed, `exp`, and
 optionally a signed `act_as` identity. Do not pass a free form `userEmail` from
 a third-party app.
 
-For Society endpoints, service calls must include delegated external investor
-identity with `act_as.investorId`. Calls without delegation are rejected.
+For Society endpoints, service calls must include delegated member identity via
+`act_as` (role, `investorId` or future `memberId`). Calls without delegation are
+rejected for scoped routes. See [docs/society.md](./docs/society.md).
 
 ## Database — Core Store
 
@@ -141,14 +163,10 @@ The LLM never decides permissions and never receives unrestricted source data.
 Conversation context (`currentStartupId`, `currentPortfolioCompanyId`, etc.)
 can be passed in the `/ai/query` body so the model never has to invent ids.
 
-Current approved tools:
+Current approved tools are defined in `src/agent/toolRegistry.ts` (24 MCP/agent tools as of Phase 1).
+See [docs/mcp-work-status.md](./docs/mcp-work-status.md) for the full catalog and [docs/mcp-use-cases.md](./docs/mcp-use-cases.md) for use-case chains.
 
-- `search_startups`
-- `read_startup_notes`
-- `read_startup_deals`
-- `read_startup_meetings`
-- `list_portfolio_signals`
-- `build_board_prep_context`
+Preferred board prep entry point: `prepare_board_brief`. `build_board_prep_context` remains as a deprecated legacy projection.
 
 Add tools by extending the registry in `src/agent/toolRegistry.ts`. The Zod
 schema, description, access level and handler all live next to each other and
@@ -160,30 +178,37 @@ The same registry is exposed as a [Model Context Protocol](https://modelcontextp
 server (`src/mcp/server.ts`). It runs over stdio and can be plugged into Cursor,
 Claude Desktop or any MCP-compatible client.
 
-Run it locally:
+**Authentication:** when `GOOGLE_OAUTH_CLIENT_ID` is set, MCP requires a Google
+`@tomcat.eu` session (`npm run auth:google`). Identity is re-verified before each
+tool call. See [docs/auth-google-mcp.md](./docs/auth-google-mcp.md).
 
 ```bash
+npm run auth:google    # once per session (~1h ID token, refresh token persisted)
+npm run auth:status    # check local session
 npm run mcp:stdio
 ```
 
 Each tool advertises its sources, access level and approval requirement in the
 description. Approval-required tools refuse to execute over MCP and emit an
-audit event. The local operator identity is `internal_team` and can be
-overridden with `MCP_OPERATOR_EMAIL`.
+audit event.
 
-Example Cursor / Claude Desktop config snippet:
+Example Cursor config:
 
 ```json
 {
   "mcpServers": {
     "tomcat-core": {
-      "command": "npx",
-      "args": ["tsx", "scripts/mcpServer.ts"],
+      "command": "npm",
+      "args": ["run", "mcp:stdio"],
       "cwd": "/absolute/path/to/tomcat-core"
     }
   }
 }
 ```
+
+**Note:** the stdio MCP uses local connector credentials from `.env`. For a
+production-grade remote MCP, route tool execution through the Core HTTP API with
+Bearer auth (future work).
 
 ## Endpoints
 
@@ -227,7 +252,16 @@ Readiness (requires `DATABASE_URL`):
 curl -s http://localhost:4000/health/readiness
 ```
 
-Local identity check:
+Local identity check (requires Google session or mock auth in dev):
+
+```bash
+npm run auth:google
+curl -s \
+  -H "Authorization: Bearer $(cat .secrets/google-id-token)" \
+  http://localhost:4000/me
+```
+
+Dev mock (when `ALLOW_MOCK_AUTH=true` and no Google client configured):
 
 ```bash
 curl -s \
@@ -252,6 +286,7 @@ NODE_ENV=production
 DATABASE_URL=postgres://user:pass@host:5432/tomcat
 CORS_ALLOWED_ORIGINS=https://society.example.com
 GOOGLE_OAUTH_CLIENT_ID=...
+ALLOWED_GOOGLE_DOMAINS=tomcat.eu
 SERVICE_TOKEN_SECRET=...
 ```
 
@@ -407,8 +442,7 @@ UNIPILE_DAILY_QUOTA=      # Per-account daily call quota (default: 60, max: 100)
 1. Zod validation of raw connector payloads before mapping to domain entities.
 2. Stable cross-system identifiers (Monday board id, HubSpot company id, Drive
    folder id) instead of name-only joins where precision matters.
-3. Wire the MCP server through Tomcat identity once we have a real per-client
-   auth story (today it runs as a single local operator).
+3. Remote MCP / Society Web OAuth client (multiple `aud` values) when needed.
 4. Expand the agent tool catalog only when a real use case needs it.
 5. Persist audit logs to an external sink (Datadog, Postgres, etc.).
 6. Durable Signal Hub queue (Redis or Postgres-backed) to survive restarts.

@@ -16,10 +16,30 @@ export interface HubspotConnector {
   listNotesForStartup(startupId: string): Promise<Note[]>;
 }
 
+export type DriveFolderRef = {
+  driveFolderId: string;
+  name: string;
+  createdTime: string;
+  modifiedTime: string;
+  parentIds: string[];
+};
+
+export type DriveItemRef = {
+  driveFileId: string;
+  name: string;
+  mimeType: string;
+  kind: "folder" | "file";
+  createdTime: string;
+  modifiedTime: string;
+};
+
 export interface DriveConnector {
   listBoardPacksForCompany(
     portfolioCompanyId: string,
   ): Promise<{ id: string; title: string; driveFileId: string; createdAt: string }[]>;
+  listCompanyFolders(portfolioCompanyId: string): Promise<DriveFolderRef[]>;
+  listFolderChildren(driveFolderId: string): Promise<DriveItemRef[]>;
+  resolveItemPath(driveItemId: string): Promise<string>;
   fetchDocumentText(driveFileId: string): Promise<string>;
 }
 

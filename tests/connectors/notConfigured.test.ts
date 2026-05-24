@@ -32,5 +32,11 @@ describe("unconfigured connectors", () => {
     it("listBoardPacksForCompany → 503", () =>
       expectNotConfigured(drv.listBoardPacksForCompany("Aistos")));
     it("fetchDocumentText → 503", () => expectNotConfigured(drv.fetchDocumentText("file-id")));
+    it("listCompanyFolders → 503", () =>
+      expectNotConfigured(drv.listCompanyFolders("Aistos")));
+    it("listFolderChildren → 503", () =>
+      expectNotConfigured(drv.listFolderChildren("folder-id")));
+    it("resolveItemPath → 503", () =>
+      expectNotConfigured(drv.resolveItemPath("folder-id")));
   });
 });

@@ -11,7 +11,7 @@ alwaysApply: false
 Before writing any connector code, you MUST:
 1. Read the **existing entities** in `src/domain/entities.ts` to understand the exact shapes expected.
 2. Read the **connector interface** in `src/connectors/types.ts` to know the method signatures.
-3. Read the **service** that calls the connector (`src/services/startups.ts`, `briefs.ts`, `society.ts`) to understand what fields are actually consumed downstream.
+3. Read the **service** that calls the connector (`src/services/startups.ts`, `boardBrief.ts`, `society.ts`) to understand what fields are actually consumed downstream.
 4. If the real API structure is unknown, **call the API** (or read its official docs) to verify field names, pagination format, and auth before mapping.
 
 Never invent field names, property keys, or API response shapes. Map only what the API actually returns.

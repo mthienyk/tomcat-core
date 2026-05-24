@@ -101,8 +101,8 @@ export const createHttpMondayConnector = (token: string): MondayConnector => {
       }
     },
 
-    // Monday's current board structure tracks operational support activities, not portfolio
-    // signals (funding rounds, press, hires…). No signal board exists yet.
+    // Portfolio signals are not sourced from Monday today (no team ritual, no dedicated board).
+    // Digest and briefs rely on Signal Hub + HubSpot; Monday is the portco directory only.
     async listSignals(_sinceDays: number): Promise<PortfolioSignal[]> {
       return [];
     },

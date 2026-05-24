@@ -41,15 +41,6 @@ const stubServices = (): AgentToolServices => ({
     listAccessibleDeals: async () => [] as never,
     listAccessibleMeetings: async () => [] as never,
   } as AgentToolServices["startups"],
-  briefs: {
-    boardPrep: async (_caller, portfolioCompanyId) => ({
-      portfolioCompanyId,
-      startupId: "startup_aistos",
-      highlights: ["MRR +12% this month."],
-      risks: ["Cash runway under 6 months."],
-      citations: [],
-    }),
-  } as AgentToolServices["briefs"],
   society: {
     getInvestorHome: async () => {
       throw new Error("not used in simulation");
@@ -116,6 +107,69 @@ const stubServices = (): AgentToolServices => ({
       warnings: [],
     }),
   } as AgentToolServices["companyContext"],
+  signalHub: {
+    listWatched: async () => [],
+    addWatched: async () => ({ id: "watched_demo" }),
+    setPriority: async () => undefined,
+    listEvents: async () => [],
+    resolveEntity: async () => ({
+      watchedId: undefined,
+      candidates: [],
+      needsClarification: true,
+    }),
+    listUnipileAccounts: async () => [],
+    requestRefresh: async () => ({ jobId: "job_demo", accepted: true }),
+    freezeUnipileAccount: async () => undefined,
+  } as AgentToolServices["signalHub"],
+  competitiveHistory: {
+    findCompetitiveHistory: async () => ({
+      data: {
+        referenceStartup: null,
+        searchBasis: "sector_filter" as const,
+        matchCount: 0,
+        matches: [],
+      },
+      citations: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["competitiveHistory"],
+  companyDriveFolder: {
+    resolveCompanyDriveFolder: async () => ({
+      data: {
+        portfolioCompanyId: "DemoCo",
+        canonicalName: undefined,
+        purpose: "company_root" as const,
+        primaryFolder: null,
+        folderCandidates: [],
+        inventory: [],
+        presentInputs: [],
+        missingInputs: [],
+      },
+      citations: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["companyDriveFolder"],
+  boardBrief: {
+    prepareBoardBrief: async () => ({
+      data: {
+        portfolioCompanyId: "DemoCo",
+        startupId: "hs_demo",
+        canonicalName: "DemoCo",
+        executiveSnapshot: {
+          headlineHighlights: [],
+          headlineRisks: [],
+          openQuestions: ["Locate the latest board deck."],
+        },
+        mondaySignals: { highlights: [], risks: [], signalCount: 0 },
+        crmTimeline: { recentNotes: [], activeDeals: [], recentMeetings: [] },
+        driveDocuments: { latestBoardPack: null, recentDocuments: [] },
+        linkedInSignals: { signalCount: 0, recentSignals: [] },
+        prepChecklist: [],
+      },
+      citations: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["boardBrief"],
 });
 
 type Scenario = {

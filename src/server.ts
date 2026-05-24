@@ -11,27 +11,21 @@ import { createAuthMiddleware } from "./auth/middleware.js";
 import { placeholderRoleResolver } from "./auth/roleResolver.js";
 import { createDbRoleResolver } from "./auth/dbRoleResolver.js";
 import type { IdentityResolver } from "./auth/types.js";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import { buildConnectors } from "./connectors/registry.js";
 import { buildStoreBackedConnectors } from "./connectors/storeBacked.js";
-import { createSerperConnector, createUnconfiguredSerperConnector } from "./connectors/serper.js";
-import { createUnipileConnector, createUnconfiguredUnipileConnector } from "./connectors/unipile.js";
 import { buildLlmRegistry } from "./llm/registry.js";
 import { buildSocietyService } from "./services/society.js";
 import { buildStartupsService } from "./services/startups.js";
-import { buildBriefsService } from "./services/briefs.js";
 import { buildCompanyContextService } from "./services/companyContext.js";
 import { buildAiService } from "./services/ai.js";
-import { createSqliteSignalStore } from "./storage/sqliteSignalStore.js";
-import { createPgSignalStore } from "./storage/pgSignalStore.js";
 import { createPgCoreStore } from "./storage/pgCoreStore.js";
 import { createDb } from "./storage/pgClient.js";
 import { runPgMigrations } from "./storage/pgMigrations.js";
-import { createGuardianRegistry } from "./services/signalHub/accountGuardian.js";
-import { createEntityResolver } from "./services/signalHub/resolver.js";
-import { createSignalQueue } from "./services/signalHub/queue.js";
-import { buildSignalHubService } from "./services/signalHub/index.js";
+import { bootstrapSignalHub } from "./services/signalHub/bootstrap.js";
+import { buildCompetitiveHistoryService } from "./services/competitiveHistory.js";
+import { buildCompanyDriveFolderService } from "./services/companyDriveFolder.js";
+import { buildBoardBriefService } from "./services/boardBrief.js";
+import { buildPortfolioSignalDigestService } from "./services/portfolioSignalDigest.js";
 import { createSyncScheduler } from "./sync/scheduler.js";
 import { errorHandler } from "./api/errorHandler.js";
 import { registerHealthRoutes } from "./api/routes/health.js";
@@ -137,64 +131,43 @@ export const buildServer = async (
   // --- Services ---
   const society = buildSocietyService({ connectors });
   const startups = buildStartupsService({ connectors });
-  const briefs = buildBriefsService({ connectors });
   const companyContext = buildCompanyContextService({
     connectors,
     startups,
     society,
   });
 
-  // --- Signal Hub ---
-  const { signalHub: shConfig } = config;
-
-  let signalStore: Awaited<ReturnType<typeof createSqliteSignalStore>> | Awaited<ReturnType<typeof createPgSignalStore>>;
-  if (shConfig.storeDriver === "postgres" && pgDb) {
-    signalStore = await createPgSignalStore(pgDb); // reuses the shared Postgres pool
-    app.log.info("SignalStore using Postgres");
-  } else {
-    mkdirSync(
-      dirname(shConfig.storePath) === "." ? ".data" : dirname(shConfig.storePath),
-      { recursive: true },
-    );
-    signalStore = createSqliteSignalStore(shConfig.storePath);
-  }
-
-  const guardianRegistry = createGuardianRegistry(signalStore);
-
-  void signalStore.listUnipileAccounts().then((accounts) => {
-    for (const account of accounts) {
-      if (account.state !== "killed") {
-        guardianRegistry.getOrCreate(account.accountId, account.label, account.dailyQuota);
-      }
-    }
+  const competitiveHistory = buildCompetitiveHistoryService({ startups });
+  const companyDriveFolder = buildCompanyDriveFolderService({
+    connectors,
+    startups,
+    society,
   });
 
-  const serper = shConfig.serperApiKey
-    ? createSerperConnector(shConfig.serperApiKey)
-    : createUnconfiguredSerperConnector();
+  const signalHubStack = await bootstrapSignalHub({
+    config,
+    startups,
+    ...(pgDb !== undefined ? { pgDb } : {}),
+    onInfo: (message) => {
+      app.log.info(message);
+    },
+  });
+  signalHubStack.start();
+  const signalHubService = signalHubStack.signalHub;
 
-  const unipile =
-    shConfig.unipileDsn && shConfig.unipileApiKey
-      ? createUnipileConnector(shConfig.unipileDsn, shConfig.unipileApiKey)
-      : createUnconfiguredUnipileConnector();
-
-  const signalQueue = createSignalQueue({
-    store: signalStore,
-    serper,
-    unipile,
-    guardians: guardianRegistry,
+  const boardBrief = buildBoardBriefService({
+    connectors,
+    startups,
+    society,
+    signalHub: signalHubService,
   });
 
-  const entityResolver = createEntityResolver(signalStore, startups);
-
-  const signalHubService = buildSignalHubService({
-    store: signalStore,
-    queue: signalQueue,
-    resolver: entityResolver,
-    guardians: guardianRegistry,
+  const portfolioSignalDigest = buildPortfolioSignalDigestService({
+    connectors,
+    startups,
+    society,
+    signalHub: signalHubService,
   });
-
-  signalQueue.start();
 
   // --- Sync scheduler (when CoreStore available) ---
   let syncScheduler: ReturnType<typeof createSyncScheduler> | undefined;
@@ -221,7 +194,7 @@ export const buildServer = async (
         app.log.warn({ failed }, "marked_running_sync_runs_failed_on_shutdown");
       }
     }
-    signalQueue.stop();
+    signalHubStack.stop();
     await pgDb?.end();
   });
 
@@ -233,14 +206,14 @@ export const buildServer = async (
   registerHealthRoutes(app, connectors, coreStore);
   registerMeRoutes(app, auth);
   registerSocietyRoutes(app, auth, society);
-  registerInternalRoutes(app, auth, briefs);
+  registerInternalRoutes(app, auth, boardBrief);
   registerConnectorRoutes(app, auth, startups);
   registerSignalRoutes(app, auth, signalHubService);
   registerSignalsWebhookRoutes(
     app,
-    signalStore,
-    guardianRegistry,
-    shConfig.unipileWebhookSecret,
+    signalHubStack.store,
+    signalHubStack.guardians,
+    config.signalHub.unipileWebhookSecret,
   );
 
   if (coreStore) {
@@ -251,10 +224,13 @@ export const buildServer = async (
     const ai = buildAiService({
       llmRegistry,
       startups,
-      briefs,
       society,
       companyContext,
       signalHub: signalHubService,
+      competitiveHistory,
+      companyDriveFolder,
+      boardBrief,
+      portfolioSignalDigest,
       auditor,
     });
     registerAiRoutes(app, auth, ai);

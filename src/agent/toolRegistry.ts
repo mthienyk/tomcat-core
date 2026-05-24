@@ -8,20 +8,27 @@ import type {
 } from "../domain/agent.js";
 import type { Identity } from "../domain/identity.js";
 import type { LlmJsonSchema, LlmTool } from "../llm/types.js";
-import type { BriefsService } from "../services/briefs.js";
 import type { CompanyContextService } from "../services/companyContext.js";
 import type { SocietyService } from "../services/society.js";
 import type { StartupsService } from "../services/startups.js";
 import type { SignalHubService } from "../services/signalHub/index.js";
-
-export type AgentToolAccess = "internal" | "confidential" | "restricted";
+import type { CompetitiveHistoryService } from "../services/competitiveHistory.js";
+import type { CompanyDriveFolderService } from "../services/companyDriveFolder.js";
+import type { BoardBriefService } from "../services/boardBrief.js";
+import type { PortfolioSignalDigestService } from "../services/portfolioSignalDigest.js";
+import type { AgentToolAccess } from "../domain/agentTools.js";
+import { formatToolDescription } from "../mcp/toolMeta.js";
+import { TOOL_DESCRIPTIONS } from "./toolCopy.js";
 
 export type AgentToolServices = {
   startups: StartupsService;
-  briefs: BriefsService;
   society: SocietyService;
   companyContext: CompanyContextService;
   signalHub: SignalHubService;
+  competitiveHistory: CompetitiveHistoryService;
+  companyDriveFolder: CompanyDriveFolderService;
+  boardBrief: BoardBriefService;
+  portfolioSignalDigest: PortfolioSignalDigestService;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -99,9 +106,36 @@ const ListPortfolioSignalsArgs = z
   })
   .strict();
 
+const GeneratePortfolioSignalDigestArgs = z
+  .object({
+    sinceDays: z.number().int().positive().max(30).optional(),
+    portfolioCompanyId: z.string().min(1).optional(),
+    priority: z.enum(["hot", "warm", "cold"]).optional(),
+    signalsPerCompany: z.number().int().positive().max(25).optional(),
+    includeCrmNotes: z.boolean().optional(),
+    notesPerCompany: z.number().int().positive().max(5).optional(),
+    includeQuietCompanies: z.boolean().optional(),
+  })
+  .strict();
+
 const BoardPrepArgs = z
   .object({
     portfolioCompanyId: z.string().min(1),
+  })
+  .strict();
+
+const PrepareBoardBriefArgs = z
+  .object({
+    portfolioCompanyId: z.string().min(1).optional(),
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    sinceDaysMonday: z.number().int().positive().max(180).optional(),
+    sinceDaysLinkedIn: z.number().int().positive().max(90).optional(),
+    notesLimit: z.number().int().positive().max(20).optional(),
+    dealsLimit: z.number().int().positive().max(20).optional(),
+    meetingsLimit: z.number().int().positive().max(20).optional(),
+    driveDocsLimit: z.number().int().positive().max(25).optional(),
+    linkedInLimit: z.number().int().positive().max(25).optional(),
   })
   .strict();
 
@@ -174,6 +208,36 @@ const BuildCompany360Args = z
   })
   .strict();
 
+const FindCompetitiveHistoryArgs = z
+  .object({
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    sector: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(25).optional(),
+    notesPerMatch: z.number().int().positive().max(10).optional(),
+  })
+  .strict();
+
+const ResolveCompanyDriveFolderArgs = z
+  .object({
+    portfolioCompanyId: z.string().min(1).optional(),
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    purpose: z
+      .enum([
+        "company_root",
+        "series_a",
+        "pre_round",
+        "m2_financial",
+        "bp_inputs",
+        "reporting",
+      ])
+      .optional(),
+    folderLimit: z.number().int().positive().max(25).optional(),
+    inventoryLimit: z.number().int().positive().max(100).optional(),
+  })
+  .strict();
+
 type StartupSelectionArgs = {
   startupId?: string | undefined;
   startupName?: string | undefined;
@@ -199,12 +263,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "search_startups",
     title: "Search Startups",
-    description:
-      "Look up startups visible to the caller. Returns the startup(s) matching the query. "
-      + "Use startupId for exact id lookup, startupName for case-insensitive substring match, "
-      + "or sector to list every startup in that sector. With no argument, returns a bounded "
-      + "list of visible startups. This is the primary tool to confirm a startup exists and "
-      + "obtain its canonical id before reading notes, deals or meetings.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.search_startups),
+
     labels: ["startup", "crm", "search", "discovery"],
     sources: ["hubspot"],
     access: "confidential",
@@ -220,9 +280,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "read_startup_notes",
     title: "Read Startup Notes",
-    description:
-      "Return permission-filtered notes for one startup selected by startupId or exact "
-      + "startupName. Output is sorted by recency and supports limit for structured consumers.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.read_startup_notes),
+
     labels: ["startup", "crm", "notes", "summary"],
     sources: ["hubspot"],
     access: "confidential",
@@ -238,9 +297,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "read_startup_deals",
     title: "Read Startup Deals",
-    description:
-      "Return permission-filtered HubSpot deals for one startup, sorted by latest update. "
-      + "Use startupId when available to avoid ambiguity; limit controls payload size.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.read_startup_deals),
+
     labels: ["startup", "crm", "deals", "pipeline"],
     sources: ["hubspot"],
     access: "confidential",
@@ -256,9 +314,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "read_startup_meetings",
     title: "Read Startup Meetings",
-    description:
-      "Return HubSpot meetings for one startup, sorted by most recent occurrence. "
-      + "Useful for timeline reconstruction and pre-call context.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.read_startup_meetings),
+
     labels: ["startup", "crm", "meetings", "timeline"],
     sources: ["hubspot"],
     access: "confidential",
@@ -274,9 +331,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "list_portfolio_signals",
     title: "List Portfolio Signals",
-    description:
-      "List recent portfolio signals (hires, risks, funding, press) for one portfolio company. "
-      + "sinceDays defaults to 30 if omitted.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.list_portfolio_signals),
+
     labels: ["portfolio", "monday", "signals", "risk"],
     sources: ["monday"],
     access: "confidential",
@@ -292,24 +348,104 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "build_board_prep_context",
     title: "Build Board Prep Context",
-    description:
-      "Assemble a cited multi-source brief (CRM + Monday + Drive) for one portfolio company. "
-      + "Use for board prep, company 360 or pre-call briefings.",
-    labels: ["portfolio", "brief", "board", "cross_source"],
-    sources: ["hubspot", "monday", "drive"],
+    description: formatToolDescription(TOOL_DESCRIPTIONS.build_board_prep_context),
+
+    labels: ["portfolio", "brief", "board", "legacy"],
+    sources: ["hubspot", "monday", "drive", "signal_hub"],
     access: "confidential",
     approvalRequired: false,
     inputSchema: BoardPrepArgs,
     execute: async ({ services, caller, args }) =>
-      services.briefs.boardPrep(caller, args.portfolioCompanyId),
+      services.boardBrief.prepareLegacyBoardPrepContext(
+        caller,
+        args.portfolioCompanyId,
+      ),
+  }),
+  defineAgentTool({
+    name: "prepare_board_brief",
+    title: "Prepare Board Brief",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.prepare_board_brief),
+
+    labels: ["brief", "portfolio", "board", "cross_source"],
+    sources: ["hubspot", "monday", "drive", "signal_hub"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: PrepareBoardBriefArgs,
+    execute: async ({ services, caller, args }) => {
+      const hasSelector = args.portfolioCompanyId !== undefined ||
+        args.startupId !== undefined ||
+        args.startupName !== undefined;
+      if (!hasSelector) {
+        throw BadRequest(
+          "Provide portfolioCompanyId or at least one startup selector (startupId/startupName).",
+        );
+      }
+      return services.boardBrief.prepareBoardBrief(caller, {
+        ...(args.portfolioCompanyId !== undefined
+          ? { portfolioCompanyId: args.portfolioCompanyId }
+          : {}),
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined
+          ? { startupName: args.startupName }
+          : {}),
+        ...(args.sinceDaysMonday !== undefined
+          ? { sinceDaysMonday: args.sinceDaysMonday }
+          : {}),
+        ...(args.sinceDaysLinkedIn !== undefined
+          ? { sinceDaysLinkedIn: args.sinceDaysLinkedIn }
+          : {}),
+        ...(args.notesLimit !== undefined ? { notesLimit: args.notesLimit } : {}),
+        ...(args.dealsLimit !== undefined ? { dealsLimit: args.dealsLimit } : {}),
+        ...(args.meetingsLimit !== undefined
+          ? { meetingsLimit: args.meetingsLimit }
+          : {}),
+        ...(args.driveDocsLimit !== undefined
+          ? { driveDocsLimit: args.driveDocsLimit }
+          : {}),
+        ...(args.linkedInLimit !== undefined
+          ? { linkedInLimit: args.linkedInLimit }
+          : {}),
+      });
+    },
+  }),
+  defineAgentTool({
+    name: "generate_portfolio_signal_digest",
+    title: "Generate Portfolio Signal Digest",
+    description: formatToolDescription(
+      TOOL_DESCRIPTIONS.generate_portfolio_signal_digest,
+    ),
+
+    labels: ["portfolio", "signals", "digest", "communication"],
+    sources: ["monday", "signal_hub", "hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: GeneratePortfolioSignalDigestArgs,
+    execute: async ({ services, caller, args }) =>
+      services.portfolioSignalDigest.generatePortfolioSignalDigest(caller, {
+        ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
+        ...(args.portfolioCompanyId !== undefined
+          ? { portfolioCompanyId: args.portfolioCompanyId }
+          : {}),
+        ...(args.priority !== undefined ? { priority: args.priority } : {}),
+        ...(args.signalsPerCompany !== undefined
+          ? { signalsPerCompany: args.signalsPerCompany }
+          : {}),
+        ...(args.includeCrmNotes !== undefined
+          ? { includeCrmNotes: args.includeCrmNotes }
+          : {}),
+        ...(args.notesPerCompany !== undefined
+          ? { notesPerCompany: args.notesPerCompany }
+          : {}),
+        ...(args.includeQuietCompanies !== undefined
+          ? { includeQuietCompanies: args.includeQuietCompanies }
+          : {}),
+      }),
   }),
   defineAgentTool({
     name: "resolve_entity",
     title: "Resolve Entity",
-    description:
-      "Normalize a user fragment into HubSpot startup ids and Monday portfolio company ids visible to the caller. "
-      + "Returns multiple candidates plus needsClarification when ambiguous. Call this before narrow reads when the user "
-      + "gives a loose company name. Pair with list_company_crm_activity, list_company_documents or list_portfolio_context.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.resolve_entity),
+
     labels: ["discovery", "routing", "crm", "portfolio"],
     sources: ["hubspot", "monday"],
     access: "confidential",
@@ -325,10 +461,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "list_company_crm_activity",
     title: "List Company CRM Activity",
-    description:
-      "Batch HubSpot notes/deals/meetings for one company. Toggle include* flags to shrink payloads. "
-      + "portfolioCompanyId is resolved through the Monday board name token, so pass the same string you use for Drive. "
-      + "Prefer startupId from resolve_entity when ambiguity is possible.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.list_company_crm_activity),
+
     labels: ["crm", "hubspot", "batch"],
     sources: ["hubspot"],
     access: "confidential",
@@ -340,9 +474,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "list_company_documents",
     title: "List Company Documents",
-    description:
-      "List Drive files whose names contain portfolioCompanyId. Optional titleContains narrows filenames. "
-      + "Scoped by investor portfolio ACLs enforced in Society.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.list_company_documents),
+
     labels: ["drive", "documents", "portfolio"],
     sources: ["drive"],
     access: "confidential",
@@ -366,9 +499,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "read_company_document_excerpt",
     title: "Read Company Document Excerpt",
-    description:
-      "Fetch plain text excerpts from Google-native files indexed by list_company_documents. "
-      + "Reject random driveFileId values outside that listing.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.read_company_document_excerpt),
+
     labels: ["drive", "documents", "excerpt"],
     sources: ["drive"],
     access: "confidential",
@@ -385,9 +517,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "list_portfolio_context",
     title: "List Portfolio Context",
-    description:
-      "Return Monday portfolio row metadata plus permission-filtered signals and upcoming workspace events "
-      + "currently exposed by connectors. Signals may be empty if Monday has no ingestion board wired yet.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.list_portfolio_context),
+
     labels: ["portfolio", "monday", "signals"],
     sources: ["monday"],
     access: "confidential",
@@ -411,9 +542,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "build_company_360_context",
     title: "Build Company 360 Context",
-    description:
-      "Optional multi-section assembler for board prep or internal digests. Prefer atomic tools when you only need one slice. "
-      + "Provide portfolioCompanyId or startup selectors; missing Monday linkage yields warnings instead of failing outright.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.build_company_360_context),
+
     labels: ["portfolio", "brief", "cross_source"],
     sources: ["hubspot", "monday", "drive"],
     access: "confidential",
@@ -431,15 +561,62 @@ export const AGENT_TOOL_REGISTRY = [
       return services.companyContext.buildCompany360Context(caller, args);
     },
   }),
+  defineAgentTool({
+    name: "find_competitive_history",
+    title: "Find Competitive History",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.find_competitive_history),
+
+    labels: ["startup", "crm", "memory", "competitive"],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: FindCompetitiveHistoryArgs,
+    execute: async ({ services, caller, args }) =>
+      services.competitiveHistory.findCompetitiveHistory(caller, {
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined ? { startupName: args.startupName } : {}),
+        ...(args.sector !== undefined ? { sector: args.sector } : {}),
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.notesPerMatch !== undefined ? { notesPerMatch: args.notesPerMatch } : {}),
+      }),
+  }),
+  defineAgentTool({
+    name: "resolve_company_drive_folder",
+    title: "Resolve Company Drive Folder",
+    description: formatToolDescription(
+      TOOL_DESCRIPTIONS.resolve_company_drive_folder,
+    ),
+
+    labels: ["drive", "documents", "portfolio", "routing"],
+    sources: ["drive", "monday"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: ResolveCompanyDriveFolderArgs,
+    execute: async ({ services, caller, args }) =>
+      services.companyDriveFolder.resolveCompanyDriveFolder(caller, {
+        ...(args.portfolioCompanyId !== undefined
+          ? { portfolioCompanyId: args.portfolioCompanyId }
+          : {}),
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined
+          ? { startupName: args.startupName }
+          : {}),
+        ...(args.purpose !== undefined ? { purpose: args.purpose } : {}),
+        ...(args.folderLimit !== undefined
+          ? { folderLimit: args.folderLimit }
+          : {}),
+        ...(args.inventoryLimit !== undefined
+          ? { inventoryLimit: args.inventoryLimit }
+          : {}),
+      }),
+  }),
   // --- Signal Hub tools ---
 
   defineAgentTool({
     name: "signal_hub_list_watched",
     title: "Signal Hub: List Watched Entities",
-    description:
-      "List all entities (founders, companies) currently on the Signal Hub watchlist. "
-      + "Optional priority filter: 'hot', 'warm', or 'cold'. "
-      + "Returns id, displayName, linkedinUrl, linkedinIdentifier, priority, startupId.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_list_watched),
+
     labels: ["signal_hub", "watchlist", "linkedin"],
     sources: ["signal_hub"],
     access: "confidential",
@@ -454,11 +631,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_add_watched",
     title: "Signal Hub: Add Watched Entity",
-    description:
-      "Add a founder or company to the Signal Hub watchlist. "
-      + "Provide displayName and optionally linkedinUrl or linkedinIdentifier. "
-      + "Link to an existing HubSpot startup via startupId. "
-      + "Requires internal_team role.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_add_watched),
+
     labels: ["signal_hub", "watchlist", "linkedin"],
     sources: ["signal_hub"],
     access: "confidential",
@@ -485,10 +659,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_set_priority",
     title: "Signal Hub: Set Entity Priority",
-    description:
-      "Update the polling priority of a watched entity. "
-      + "hot = polled first, warm = default, cold = rarely polled. "
-      + "Requires internal_team role.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_set_priority),
+
     labels: ["signal_hub", "watchlist"],
     sources: ["signal_hub"],
     access: "confidential",
@@ -506,11 +678,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_recent_signals",
     title: "Signal Hub: Recent Signals",
-    description:
-      "Return recent LinkedIn signals for a watched entity or HubSpot startup. "
-      + "Provide watchedId or startupId. Optionally filter by source ('serper_public' or 'unipile'), "
-      + "signalType ('post', 'reaction', 'comment'), sinceIso (ISO-8601 datetime), "
-      + "textContains (substring), and limit (max 200, default 50).",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_recent_signals),
+
     labels: ["signal_hub", "linkedin", "signals"],
     sources: ["signal_hub"],
     access: "confidential",
@@ -544,10 +713,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_search_signals",
     title: "Signal Hub: Search Signals",
-    description:
-      "Search all ingested signals with combined filters. "
-      + "Unlike recent_signals, does not require a specific entity — useful for cross-entity queries. "
-      + "Filters: source, signalType, sinceIso, textContains. Returns up to 100 events.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_search_signals),
+
     labels: ["signal_hub", "linkedin", "search"],
     sources: ["signal_hub"],
     access: "confidential",
@@ -574,11 +741,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_resolve_entity",
     title: "Signal Hub: Resolve Entity",
-    description:
-      "Resolve a free-text query (founder name, company name, LinkedIn URL or identifier) "
-      + "to a watched entity. Returns watchedId and startupId when unambiguous. "
-      + "Returns candidates + needsClarification when ambiguous. "
-      + "Call this before recent_signals when the caller gives a loose name.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_resolve_entity),
+
     labels: ["signal_hub", "discovery"],
     sources: ["signal_hub", "hubspot"],
     access: "confidential",
@@ -593,10 +757,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_list_accounts",
     title: "Signal Hub: List Unipile Accounts",
-    description:
-      "Return the status of all registered Unipile LinkedIn accounts used for Signal Hub. "
-      + "Shows guardian state: active/frozen/killed, quota used today, last error, next allowed call time. "
-      + "Use this to monitor account health before requesting a refresh.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_list_accounts),
+
     labels: ["signal_hub", "unipile", "admin"],
     sources: ["signal_hub"],
     access: "internal",
@@ -609,11 +771,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_request_refresh",
     title: "Signal Hub: Request Refresh (async)",
-    description:
-      "Enqueue a signal refresh for a watched entity. ALWAYS async — returns immediately with jobId. "
-      + "The actual LinkedIn call happens later, rate-limited by the queue and guardian. "
-      + "source defaults to 'serper_public' (no LinkedIn account needed). "
-      + "Use 'unipile' for private feed access — requires unipileAccountId and an active account.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_request_refresh),
+
     labels: ["signal_hub", "linkedin", "refresh"],
     sources: ["signal_hub"],
     access: "confidential",
@@ -634,11 +793,8 @@ export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "signal_hub_freeze_account",
     title: "Signal Hub: Freeze Unipile Account",
-    description:
-      "Immediately freeze a Unipile LinkedIn account to stop all calls from Signal Hub. "
-      + "Use as a kill-switch when suspicious LinkedIn activity is observed. "
-      + "durationHours defaults to 24. Account can be unfrozen via the API. "
-      + "Requires internal_team role.",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.signal_hub_freeze_account),
+
     labels: ["signal_hub", "unipile", "admin", "safety"],
     sources: ["signal_hub"],
     access: "internal",

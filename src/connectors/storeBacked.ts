@@ -83,6 +83,12 @@ export const buildStoreBackedConnectors = (
           createdAt,
         }));
       },
+      // Folder structure is not cached — always fetches live.
+      listCompanyFolders: (portfolioCompanyId) =>
+        live.drive.listCompanyFolders(portfolioCompanyId),
+      listFolderChildren: (driveFolderId) =>
+        live.drive.listFolderChildren(driveFolderId),
+      resolveItemPath: (driveItemId) => live.drive.resolveItemPath(driveItemId),
       // Document text is never cached — always fetches live.
       fetchDocumentText: (driveFileId) => live.drive.fetchDocumentText(driveFileId),
     },

@@ -99,6 +99,9 @@ const buildBundle = (params: {
     },
     drive: {
       listBoardPacksForCompany: vi.fn(async () => files),
+      listCompanyFolders: vi.fn(async () => []),
+      listFolderChildren: vi.fn(async () => []),
+      resolveItemPath: vi.fn(async () => ""),
       fetchDocumentText: vi.fn(async () => params.driveText ?? "hello world"),
     },
     hubspot: {} as never,

@@ -57,6 +57,8 @@ if not drive_json:
         p = Path(root) / drive_file
         drive_json = p.read_text() if p.is_file() else Path(drive_file).read_text()
 
+google_oauth_client_id = secrets.get("GOOGLE_OAUTH_CLIENT_ID", "") or env.get("GOOGLE_OAUTH_CLIENT_ID", "")
+
 required = {
     "DATABASE_URL": secrets.get("DATABASE_URL", ""),
     "SERVICE_TOKEN_SECRET": secrets.get("SERVICE_TOKEN_SECRET", ""),
@@ -65,6 +67,7 @@ required = {
     "HUBSPOT_API_TOKEN": secrets.get("HUBSPOT_API_TOKEN", ""),
     "MONDAY_API_TOKEN": secrets.get("MONDAY_API_TOKEN", ""),
     "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON": drive_json,
+    "GOOGLE_OAUTH_CLIENT_ID": google_oauth_client_id,
 }
 for key, value in required.items():
     if not value:
@@ -111,6 +114,7 @@ payload = {
         "ALLOW_MOCK_AUTH": "false",
         "CORS_ALLOWED_ORIGINS": cors,
         "SERVICE_CLIENTS": "society:society.read|society.write,team-mcp:ai.query|briefs.write",
+        "ALLOWED_GOOGLE_DOMAINS": "tomcat.eu",
     },
     "secret_environment_variables": [
         {"key": key, "value": value} for key, value in required.items()

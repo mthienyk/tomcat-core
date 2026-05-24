@@ -16,11 +16,15 @@ const TEXT_EXPORT_MIMES: Partial<Record<string, string>> = {
   [GOOGLE_SHEET_MIME]: "text/csv",
 };
 
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
 type DriveFile = {
   id: string;
   name: string;
   mimeType: string;
   createdTime: string;
+  modifiedTime?: string;
+  parents?: string[];
 };
 
 type DriveListResponse = {
@@ -33,6 +37,12 @@ const escapeQuery = (raw: string): string => raw.replace(/'/g, "\\'");
 export const createUnconfiguredDriveConnector = (): DriveConnector => ({
   listBoardPacksForCompany: () =>
     Promise.reject(ConnectorNotConfigured("drive", "listBoardPacksForCompany")),
+  listCompanyFolders: () =>
+    Promise.reject(ConnectorNotConfigured("drive", "listCompanyFolders")),
+  listFolderChildren: () =>
+    Promise.reject(ConnectorNotConfigured("drive", "listFolderChildren")),
+  resolveItemPath: () =>
+    Promise.reject(ConnectorNotConfigured("drive", "resolveItemPath")),
   fetchDocumentText: () =>
     Promise.reject(ConnectorNotConfigured("drive", "fetchDocumentText")),
 });
@@ -77,7 +87,8 @@ export const createHttpDriveConnector = (
       const params = new URLSearchParams({
         q: query,
         pageSize: "100",
-        fields: "nextPageToken, files(id,name,mimeType,createdTime)",
+        fields:
+          "nextPageToken, files(id,name,mimeType,createdTime,modifiedTime,parents)",
         includeItemsFromAllDrives: "true",
         supportsAllDrives: "true",
         orderBy: "createdTime desc",
@@ -98,6 +109,79 @@ export const createHttpDriveConnector = (
   };
 
   return {
+    async listCompanyFolders(portfolioCompanyId) {
+      try {
+        const client = await buildClient();
+        const escapedName = escapeQuery(portfolioCompanyId);
+        const query =
+          `name contains '${escapedName}' and trashed = false and mimeType = '${FOLDER_MIME}'`;
+        const files = await listFiles(client, query);
+        return files.map((folder) => ({
+          driveFolderId: folder.id,
+          name: folder.name,
+          createdTime: folder.createdTime,
+          modifiedTime: folder.modifiedTime ?? folder.createdTime,
+          parentIds: folder.parents ?? [],
+        }));
+      } catch (err) {
+        if (err instanceof CoreError) throw err;
+        throw ConnectorFailed("drive.listCompanyFolders failed", {
+          cause: String(err),
+        });
+      }
+    },
+
+    async listFolderChildren(driveFolderId) {
+      try {
+        const client = await buildClient();
+        const escapedId = escapeQuery(driveFolderId);
+        const query = `'${escapedId}' in parents and trashed = false`;
+        const files = await listFiles(client, query);
+        return files.map((item) => ({
+          driveFileId: item.id,
+          name: item.name,
+          mimeType: item.mimeType,
+          kind: item.mimeType === FOLDER_MIME ? "folder" as const : "file" as const,
+          createdTime: item.createdTime,
+          modifiedTime: item.modifiedTime ?? item.createdTime,
+        }));
+      } catch (err) {
+        if (err instanceof CoreError) throw err;
+        throw ConnectorFailed("drive.listFolderChildren failed", {
+          cause: String(err),
+        });
+      }
+    },
+
+    async resolveItemPath(driveItemId) {
+      try {
+        const client = await buildClient();
+        const segments: string[] = [];
+        let currentId: string | undefined = driveItemId;
+
+        type DrivePathMeta = {
+          id: string;
+          name: string;
+          parents?: string[];
+        };
+
+        while (currentId) {
+          const itemMeta: DrivePathMeta = await client.json<DrivePathMeta>(
+            `/files/${currentId}?fields=id,name,parents&supportsAllDrives=true`,
+          );
+          segments.unshift(itemMeta.name);
+          currentId = itemMeta.parents?.[0];
+        }
+
+        return segments.join(" / ");
+      } catch (err) {
+        if (err instanceof CoreError) throw err;
+        throw ConnectorFailed("drive.resolveItemPath failed", {
+          cause: String(err),
+        });
+      }
+    },
+
     async listBoardPacksForCompany(portfolioCompanyId) {
       try {
         const client = await buildClient();

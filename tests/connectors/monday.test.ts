@@ -66,7 +66,7 @@ describe("createHttpMondayConnector", () => {
   });
 
   describe("listSignals", () => {
-    it("returns empty array (no signal board in current workspace)", async () => {
+    it("returns empty array (Monday is portco directory only — digest uses Signal Hub + HubSpot)", async () => {
       const mon = createHttpMondayConnector("token");
       expect(await mon.listSignals(30)).toEqual([]);
     });

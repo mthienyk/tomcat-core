@@ -15,6 +15,9 @@
     "lint": "eslint . --ext .ts",
     "simulate:agent": "tsx scripts/simulateAgent.ts",
     "mcp:stdio": "tsx scripts/mcpServer.ts",
+    "auth:google": "tsx scripts/googleLogin.ts",
+    "auth:status": "tsx scripts/googleAuthStatus.ts",
+    "auth:logout": "tsx scripts/googleAuthLogout.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

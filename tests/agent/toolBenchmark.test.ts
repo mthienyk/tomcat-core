@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { CoreToolNameSchema } from "../../src/domain/agent.js";
 
 const BenchmarkQuestionSchema = z.object({
   id: z.string().min(1),
@@ -48,6 +49,19 @@ const loadBenchmark = (): z.infer<typeof BenchmarkSchema> =>
   BenchmarkSchema.parse(
     JSON.parse(
       readFileSync("docs/tool-benchmark/questions.json", "utf8"),
+    ) as unknown,
+  );
+
+const RegistryMappingSchema = z.object({
+  version: z.string().min(1),
+  description: z.string().min(1),
+  mappings: z.record(z.string(), CoreToolNameSchema.nullable()),
+});
+
+const loadRegistryMapping = (): z.infer<typeof RegistryMappingSchema> =>
+  RegistryMappingSchema.parse(
+    JSON.parse(
+      readFileSync("docs/tool-benchmark/registry-mapping.json", "utf8"),
     ) as unknown,
   );
 
@@ -118,5 +132,23 @@ describe("tool benchmark corpus", () => {
         "llm",
       ]),
     );
+  });
+
+  it("maps every benchmark candidate tool through registry-mapping.json", () => {
+    const benchmark = loadBenchmark();
+    const mapping = loadRegistryMapping();
+    const candidateTools = new Set(
+      benchmark.questions.flatMap((question) => question.candidateTools),
+    );
+
+    const unmapped = [...candidateTools].filter(
+      (toolName) => !(toolName in mapping.mappings),
+    );
+    expect(unmapped).toEqual([]);
+
+    const implemented = Object.values(mapping.mappings).filter(
+      (value): value is z.infer<typeof CoreToolNameSchema> => value !== null,
+    );
+    expect(new Set(implemented).size).toBeGreaterThanOrEqual(10);
   });
 });

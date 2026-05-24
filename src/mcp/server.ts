@@ -9,12 +9,13 @@ import {
 } from "../agent/toolRegistry.js";
 import type { CoreToolName } from "../domain/agent.js";
 import { CoreError } from "../errors/index.js";
+import { MCP_SERVER_INSTRUCTIONS } from "./instructions.js";
 
 export type McpAgentServerOptions = {
   name?: string;
   version?: string;
   services: AgentToolServices;
-  caller: Identity;
+  resolveCaller: () => Promise<Identity>;
   auditor: Auditor;
 };
 
@@ -36,15 +37,27 @@ const formatOutput = (output: unknown): string => {
   }
 };
 
-const toStructuredPayload = (payload: unknown): Record<string, unknown> => {
-  if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) {
-    return payload as Record<string, unknown>;
+const toStructuredPayload = (output: unknown): Record<string, unknown> => {
+  if (
+    output !== null &&
+    typeof output === "object" &&
+    !Array.isArray(output) &&
+    "data" in output &&
+    "warnings" in output
+  ) {
+    return output as Record<string, unknown>;
   }
-  return { value: payload as string | number | boolean | null };
+  if (output !== null && typeof output === "object" && !Array.isArray(output)) {
+    return output as Record<string, unknown>;
+  }
+  return { value: output as string | number | boolean | null };
 };
 
 const nextActionFromCoreError = (error: CoreError): string => {
   if (error.code === "BAD_REQUEST") return "fix_arguments_or_clarify";
+  if (error.code === "AUTH_INVALID" || error.code === "AUTH_REQUIRED") {
+    return "run_npm_auth_google";
+  }
   if (error.code === "FORBIDDEN") return "adjust_identity_scope";
   if (error.code === "NOT_FOUND") return "refresh_ids_via_resolve_entity";
   if (error.code === "CONNECTOR_FAILED") return "retry_or_check_connector_health";
@@ -80,13 +93,16 @@ const formatToolFailure = (error: unknown): Record<string, unknown> => {
     };
   }
   const message = error instanceof Error ? error.message : "unknown_error";
+  const nextAction = message.includes("auth:google")
+    ? "run_npm_auth_google"
+    : "inspect_audit_logs_or_support";
   return {
     error: {
       code: "INTERNAL",
       message,
       details: null,
       retryable: false,
-      nextAction: "inspect_audit_logs_or_support",
+      nextAction,
     },
   };
 };
@@ -94,20 +110,15 @@ const formatToolFailure = (error: unknown): Record<string, unknown> => {
 export const buildMcpAgentServer = (
   options: McpAgentServerOptions,
 ): McpServer => {
-  const server = new McpServer({
-    name: options.name ?? "tomcat-core",
-    version: options.version ?? "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: options.name ?? "tomcat-core",
+      version: options.version ?? "0.1.0",
+    },
+    { instructions: MCP_SERVER_INSTRUCTIONS },
+  );
 
   for (const tool of AGENT_TOOL_REGISTRY) {
-    const description =
-      `${tool.description}\n\n`
-      + `Sources: ${tool.sources.join(", ")} | `
-      + `Access: ${tool.access} | `
-      + `Approval required: ${tool.approvalRequired ? "yes" : "no"}`;
-
-    // Approval-required tools use a permissive schema so the SDK always calls
-    // our handler — which returns FORBIDDEN before any argument inspection.
     const registeredSchema = tool.approvalRequired
       ? ({} as ZodRawShape)
       : inputShape(tool.inputSchema);
@@ -116,12 +127,29 @@ export const buildMcpAgentServer = (
       tool.name,
       {
         title: tool.title,
-        description,
+        description: tool.description,
         inputSchema: registeredSchema,
       },
       async (args) => {
+        let caller: Identity;
+        try {
+          caller = await options.resolveCaller();
+        } catch (error) {
+          const structuredContent = formatToolFailure(error);
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(structuredContent, null, 2),
+              },
+            ],
+            structuredContent,
+          };
+        }
+
         if (tool.approvalRequired) {
-          options.auditor.record(options.caller, {
+          options.auditor.record(caller, {
             action: "mcp.tool_call",
             resource: `mcp://${tool.name}`,
             outcome: "denied",
@@ -153,13 +181,13 @@ export const buildMcpAgentServer = (
         try {
           const result = await executeRegisteredAgentTool(
             options.services,
-            options.caller,
+            caller,
             {
               toolName: tool.name as CoreToolName,
               arguments: (args ?? {}) as Record<string, unknown>,
             },
           );
-          options.auditor.record(options.caller, {
+          options.auditor.record(caller, {
             action: "mcp.tool_call",
             resource: `mcp://${tool.name}`,
             outcome: "allowed",
@@ -176,7 +204,7 @@ export const buildMcpAgentServer = (
           };
         } catch (error) {
           const structuredContent = formatToolFailure(error);
-          options.auditor.record(options.caller, {
+          options.auditor.record(caller, {
             action: "mcp.tool_call",
             resource: `mcp://${tool.name}`,
             outcome: "error",

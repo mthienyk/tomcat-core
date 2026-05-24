@@ -1,13 +1,14 @@
-import { OAuth2Client, type TokenPayload } from "google-auth-library";
 import type { FastifyRequest } from "fastify";
-import { AuthInvalid } from "../errors/index.js";
-import type { HumanIdentity, Role } from "../domain/identity.js";
+import { AuthInvalid, CoreError } from "../errors/index.js";
+import type { HumanIdentity } from "../domain/identity.js";
 import type { IdentityResolver } from "./types.js";
+import type { RoleResolver } from "./roleResolver.js";
+import { verifyGoogleIdToken } from "./verifyGoogleIdToken.js";
 
 export type GoogleResolverOptions = {
   clientId: string;
   allowedDomains: string[];
-  resolveRole: (email: string) => { role: Role; team: string | undefined } | Promise<{ role: Role; team: string | undefined }>;
+  resolveRole: RoleResolver;
 };
 
 const extractBearer = (req: FastifyRequest): string | undefined => {
@@ -20,49 +21,17 @@ const extractBearer = (req: FastifyRequest): string | undefined => {
 
 export const createGoogleHumanResolver = (
   opts: GoogleResolverOptions,
-): IdentityResolver => {
-  const client = new OAuth2Client(opts.clientId);
+): IdentityResolver => ({
+  name: "google-human",
+  resolve: async (req): Promise<HumanIdentity | undefined> => {
+    const token = extractBearer(req);
+    if (!token) return undefined;
 
-  const verify = async (idToken: string): Promise<TokenPayload> => {
-    const ticket = await client.verifyIdToken({
-      idToken,
-      audience: opts.clientId,
-    });
-    const payload = ticket.getPayload();
-    if (!payload || !payload.email || !payload.email_verified) {
-      throw AuthInvalid("Google ID token missing verified email");
+    try {
+      return await verifyGoogleIdToken(opts, token);
+    } catch (error) {
+      if (error instanceof CoreError) throw error;
+      throw AuthInvalid("Invalid Google ID token");
     }
-    return payload;
-  };
-
-  return {
-    name: "google-human",
-    resolve: async (req): Promise<HumanIdentity | undefined> => {
-      const token = extractBearer(req);
-      if (!token) return undefined;
-
-      let payload: TokenPayload;
-      try {
-        payload = await verify(token);
-      } catch {
-        throw AuthInvalid("Invalid Google ID token");
-      }
-
-      const email = payload.email as string;
-      const domain = email.split("@")[1] ?? "";
-      if (!opts.allowedDomains.includes(domain)) {
-        throw AuthInvalid(`Domain "${domain}" is not allowed`);
-      }
-
-      const { role, team } = await opts.resolveRole(email);
-      return {
-        kind: "human",
-        email,
-        domain,
-        role,
-        team,
-        investorId: undefined,
-      };
-    },
-  };
-};
+  },
+});

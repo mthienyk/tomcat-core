@@ -12,15 +12,27 @@
 
 Application secrets are injected as encrypted container env vars at deploy time. Keep a local `.env.secrets` (gitignored); `deploy-container.sh` reads it directly. `seed-secrets.sh` mirrors the same values into Scaleway Secret Manager for backup/reference.
 
+Required in `.env.secrets` for deploy:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Postgres read model |
+| `SERVICE_TOKEN_SECRET` | Service JWT signing |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google `@tomcat.eu` human auth (Desktop client id) |
+| Connector / LLM keys | See `.env.secrets.example` |
+
+Human auth: [docs/auth-google-mcp.md](./docs/auth-google-mcp.md). After deploy, add team members to the `users` table before they can call protected routes with Google tokens.
+
 ## Redéploiement manuel
 
 ```bash
 ./scripts/scaleway/init-cli.sh
 ./scripts/scaleway/build-push.sh
 IMAGE=rg.fr-par.scw.cloud/tomcat-core/api:<tag> \
-CORS_ALLOWED_ORIGINS=https://society.tomcat.eu \
+CORS_ALLOWED_ORIGINS=https://www.tomcat.eu \
 ./scripts/scaleway/deploy-container.sh
 curl "$(grep HTTPS_URL scripts/scaleway/.infra-state.env | cut -d= -f2-)/health"
+npm run auth:status   # local session check
 ```
 
 Push sur `main` déclenche aussi le workflow `.github/workflows/deploy.yml` (build → deploy → smoke).
@@ -30,3 +42,7 @@ Push sur `main` déclenche aussi le workflow `.github/workflows/deploy.yml` (bui
 Scaleway Console → **Cockpit** → **Logs** → filtrer sur le container namespace `tomcat-core`.
 
 Les logs applicatifs sont du JSON structuré (pino) sur stdout.
+
+## Postgres (requêtes admin)
+
+Voir [DATABASE.md](./DATABASE.md) : accès `psql` depuis ton Mac via endpoint IP-restreint ou bastion SSH.

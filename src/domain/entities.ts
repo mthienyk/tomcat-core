@@ -118,7 +118,7 @@ export type Event = {
 };
 
 export type SourceRef = {
-  system: "hubspot" | "drive" | "monday" | "manual";
+  system: "hubspot" | "drive" | "monday" | "manual" | "signal_hub";
   externalId: string;
   url: string | undefined;
 };

@@ -33,7 +33,6 @@ const fakeServices = (): AgentToolServices =>
       listAccessibleDeals: vi.fn(),
       listAccessibleMeetings: vi.fn(),
     },
-    briefs: { boardPrep: vi.fn() },
     society: {
       getInvestorHome: vi.fn(),
       getPortfolioSignals: vi.fn().mockResolvedValue([
@@ -56,6 +55,27 @@ const fakeServices = (): AgentToolServices =>
       readCompanyDocumentExcerpt: vi.fn(),
       listPortfolioContext: vi.fn(),
       buildCompany360Context: vi.fn(),
+    },
+    signalHub: {
+      listWatched: vi.fn(),
+      addWatched: vi.fn(),
+      setPriority: vi.fn(),
+      listEvents: vi.fn(),
+      resolveEntity: vi.fn(),
+      listUnipileAccounts: vi.fn(),
+      requestRefresh: vi.fn(),
+      freezeUnipileAccount: vi.fn(),
+    },
+    competitiveHistory: {
+      findCompetitiveHistory: vi.fn(),
+    },
+    companyDriveFolder: {
+      resolveCompanyDriveFolder: vi.fn(),
+    },
+    boardBrief: {
+      prepareBoardBrief: vi.fn(),
+      prepareLegacyBoardPrepContext: vi.fn(),
+      legacyBoardPrepBody: vi.fn(),
     },
   }) as unknown as AgentToolServices;
 

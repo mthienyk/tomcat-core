@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AuthRequired, BadRequest } from "../../errors/index.js";
-import type { BriefsService } from "../../services/briefs.js";
+import type { BoardBriefService } from "../../services/boardBrief.js";
 import type { CoreStore } from "../../storage/coreStore.js";
 import type { AuthMiddleware } from "../middlewareTypes.js";
 
@@ -34,7 +34,7 @@ const UserBody = z.object({
 export const registerInternalRoutes = (
   app: FastifyInstance,
   auth: AuthMiddleware,
-  briefs: BriefsService,
+  boardBrief: BoardBriefService,
 ): void => {
   app.post(
     "/internal/briefs/board-prep",
@@ -45,7 +45,10 @@ export const registerInternalRoutes = (
       if (!parsed.success) {
         throw BadRequest("Invalid body", { issues: parsed.error.issues });
       }
-      return briefs.boardPrep(req.identity, parsed.data.portfolioCompanyId);
+      return boardBrief.legacyBoardPrepBody(
+        req.identity,
+        parsed.data.portfolioCompanyId,
+      );
     },
   );
 };

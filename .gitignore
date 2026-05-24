@@ -8,11 +8,14 @@ dist/
 .secrets/
 tomcat-ai-backend-*.json
 *service-account*.json
+client_secret_*.json
+google-oauth-*.json
 *.log
 .DS_Store
 coverage/
 .env.secrets
 scripts/scaleway/.infra-state.env
+scripts/scaleway/.certs/
 .vscode/
 .idea/
 

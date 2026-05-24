@@ -5,10 +5,13 @@ import { runAgentLoop } from "../agent/agentLoop.js";
 import type { LlmProviderName, LlmRegistry, LlmStopReason } from "../llm/types.js";
 import type { Auditor } from "../audit/audit.js";
 import type { StartupsService } from "./startups.js";
-import type { BriefsService } from "./briefs.js";
 import type { CompanyContextService } from "./companyContext.js";
 import type { SocietyService } from "./society.js";
 import type { SignalHubService } from "./signalHub/index.js";
+import type { CompetitiveHistoryService } from "./competitiveHistory.js";
+import type { CompanyDriveFolderService } from "./companyDriveFolder.js";
+import type { BoardBriefService } from "./boardBrief.js";
+import type { PortfolioSignalDigestService } from "./portfolioSignalDigest.js";
 
 export type AiQueryResult = {
   provider: LlmProviderName;
@@ -24,10 +27,13 @@ export type AiQueryResult = {
 export type AiServiceDeps = {
   llmRegistry: LlmRegistry;
   startups: StartupsService;
-  briefs: BriefsService;
   society: SocietyService;
   companyContext: CompanyContextService;
   signalHub: SignalHubService;
+  competitiveHistory: CompetitiveHistoryService;
+  companyDriveFolder: CompanyDriveFolderService;
+  boardBrief: BoardBriefService;
+  portfolioSignalDigest: PortfolioSignalDigestService;
   auditor: Auditor;
 };
 
@@ -54,10 +60,13 @@ export const buildAiService = (deps: AiServiceDeps) => ({
       provider: llm,
       services: {
         startups: deps.startups,
-        briefs: deps.briefs,
         society: deps.society,
         companyContext: deps.companyContext,
         signalHub: deps.signalHub,
+        competitiveHistory: deps.competitiveHistory,
+        companyDriveFolder: deps.companyDriveFolder,
+        boardBrief: deps.boardBrief,
+        portfolioSignalDigest: deps.portfolioSignalDigest,
       },
       caller,
       auditor: deps.auditor,

@@ -97,6 +97,9 @@ const connectors: Connectors = {
   },
   drive: {
     listBoardPacksForCompany: async () => [],
+    listCompanyFolders: async () => [],
+    listFolderChildren: async () => [],
+    resolveItemPath: async () => "",
     fetchDocumentText: async () => "",
   },
   investors: {
