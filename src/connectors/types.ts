@@ -14,6 +14,9 @@ export interface HubspotConnector {
   listDealsForStartup(startupId: string): Promise<Deal[]>;
   listMeetingsForStartup(startupId: string): Promise<Meeting[]>;
   listNotesForStartup(startupId: string): Promise<Note[]>;
+  listCompaniesModifiedSince(
+    sinceMs: number,
+  ): Promise<Array<{ id: string; modifiedAt: string }>>;
 }
 
 export type DriveFolderRef = {
@@ -49,6 +52,9 @@ export interface DriveConnector {
   listFolderChildren(driveFolderId: string): Promise<DriveItemRef[]>;
   resolveItemPath(driveItemId: string): Promise<string>;
   fetchDocumentText(driveFileId: string): Promise<string>;
+  fetchDocumentBinary(
+    driveFileId: string,
+  ): Promise<{ name: string; mimeType: string; buffer: Buffer }>;
 }
 
 export interface MondayConnector {

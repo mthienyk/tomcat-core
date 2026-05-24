@@ -109,6 +109,8 @@ describe("companyDriveFolder service", () => {
 
     expect(result.data.primaryFolder?.driveFolderId).toBe("folder_m2");
     expect(result.data.primaryFolder?.path).toContain("M2 Finance");
+    expect(result.data.driveTokenUsed).toBe("Atlas");
+    expect(result.data.driveTokensTried).toContain("Atlas");
     expect(result.data.inventory).toHaveLength(1);
     expect(result.data.presentInputs).toContain("dsn");
     expect(result.data.missingInputs.length).toBeGreaterThan(0);
@@ -133,12 +135,50 @@ describe("companyDriveFolder service", () => {
     });
 
     expect(result.data.primaryFolder).toBeNull();
+    expect(result.data.driveTokensTried).toContain("UnknownCo");
     expect(result.warnings[0]?.code).toBe("DRIVE_FOLDER_NOT_FOUND");
     expect(
       result.nextSuggestedTools?.some(
         (tool) => tool.toolName === "list_company_documents",
       ),
     ).toBe(true);
+  });
+
+  it("uses alternate driveTokens when the primary portfolio token has no folders", async () => {
+    const { service } = buildService({
+      listCompanyFolders: vi.fn(async (token: string) =>
+        token === "KOMEET (ex WENABI)"
+          ? [
+              {
+                driveFolderId: "folder_wenabi",
+                name: "KOMEET (ex WENABI) — Finance",
+                createdTime: "2026-01-01T00:00:00Z",
+                modifiedTime: "2026-05-01T00:00:00Z",
+                parentIds: ["root"],
+              },
+            ]
+          : [],
+      ),
+    });
+
+    const result = await service.resolveCompanyDriveFolder(caller, {
+      portfolioCompanyId: "Wenabi",
+      driveTokens: [
+        {
+          token: "KOMEET (ex WENABI)",
+          source: "monday_portfolio",
+          confidence: 0.95,
+          matchReason: "monday_portfolio_id",
+        },
+      ],
+      purpose: "bp_inputs",
+    });
+
+    expect(result.data.driveTokenUsed).toBe("KOMEET (ex WENABI)");
+    expect(result.data.primaryFolder?.driveFolderId).toBe("folder_wenabi");
+    expect(result.warnings.some((w) => /alternate token/i.test(w.message))).toBe(
+      true,
+    );
   });
 
   it("resolves portfolioCompanyId from startupId via Monday linkage", async () => {

@@ -49,6 +49,8 @@ export const buildStoreBackedConnectors = (
         if (!f.healthy) return live.hubspot.listMeetingsForStartup(startupId);
         return store.listMeetingsForStartup(startupId);
       },
+      listCompaniesModifiedSince: (sinceMs) =>
+        live.hubspot.listCompaniesModifiedSince(sinceMs),
     },
 
     monday: {
@@ -91,6 +93,7 @@ export const buildStoreBackedConnectors = (
       resolveItemPath: (driveItemId) => live.drive.resolveItemPath(driveItemId),
       // Document text is never cached — always fetches live.
       fetchDocumentText: (driveFileId) => live.drive.fetchDocumentText(driveFileId),
+      fetchDocumentBinary: (driveFileId) => live.drive.fetchDocumentBinary(driveFileId),
     },
 
     investors: {

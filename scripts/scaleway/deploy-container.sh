@@ -83,14 +83,28 @@ required = {
     "OPENAI_API_KEY": secrets.get("OPENAI_API_KEY", ""),
     "HUBSPOT_API_TOKEN": secrets.get("HUBSPOT_API_TOKEN", ""),
     "MONDAY_API_TOKEN": secrets.get("MONDAY_API_TOKEN", ""),
-    "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON": drive_json,
-    "GOOGLE_OAUTH_CLIENT_ID": google_oauth_client_id,
+        "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON": drive_json,
+        "GOOGLE_DRIVE_SHARED_DRIVE_ID": secrets.get(
+            "GOOGLE_DRIVE_SHARED_DRIVE_ID",
+            env.get(
+                "GOOGLE_DRIVE_SHARED_DRIVE_ID",
+                "0AO2MAh9ncUDNUk9PVA",
+            ),
+        ),
+        "GOOGLE_OAUTH_CLIENT_ID": google_oauth_client_id,
     "GOOGLE_OAUTH_WEB_CLIENT_ID": google_oauth_web_client_id,
     "GOOGLE_OAUTH_WEB_CLIENT_SECRET": google_oauth_web_client_secret,
 }
 for key, value in required.items():
     if not value:
         raise SystemExit(f"Missing {key} in {secrets_file}")
+
+hubspot_webhook_secret = secrets.get(
+    "HUBSPOT_WEBHOOK_CLIENT_SECRET",
+    env.get("HUBSPOT_WEBHOOK_CLIENT_SECRET", ""),
+)
+if hubspot_webhook_secret:
+    required["HUBSPOT_WEBHOOK_CLIENT_SECRET"] = hubspot_webhook_secret
 
 state = read_env(Path(state_file))
 pn_id = state.get("PRIVATE_NETWORK_ID", "")
@@ -141,6 +155,45 @@ payload = {
             env.get(
                 "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES",
                 "cursor://,https://www.cursor.com/,http://localhost:",
+            ),
+        ),
+        "SYNC_OVERLAP_GRACE_MINUTES": secrets.get(
+            "SYNC_OVERLAP_GRACE_MINUTES",
+            env.get("SYNC_OVERLAP_GRACE_MINUTES", "20"),
+        ),
+        "HUBSPOT_MAX_REQUESTS_PER_10S": secrets.get(
+            "HUBSPOT_MAX_REQUESTS_PER_10S",
+            env.get("HUBSPOT_MAX_REQUESTS_PER_10S", "90"),
+        ),
+        "SYNC_QUEUE_POLL_INTERVAL_MS": secrets.get(
+            "SYNC_QUEUE_POLL_INTERVAL_MS",
+            env.get("SYNC_QUEUE_POLL_INTERVAL_MS", "5000"),
+        ),
+        "SYNC_QUEUE_BATCH_SIZE": secrets.get(
+            "SYNC_QUEUE_BATCH_SIZE",
+            env.get("SYNC_QUEUE_BATCH_SIZE", "3"),
+        ),
+        "SYNC_QUEUE_STALE_JOB_MS": secrets.get(
+            "SYNC_QUEUE_STALE_JOB_MS",
+            env.get("SYNC_QUEUE_STALE_JOB_MS", "600000"),
+        ),
+        "SYNC_QUEUE_RETRY_DELAY_MS": secrets.get(
+            "SYNC_QUEUE_RETRY_DELAY_MS",
+            env.get("SYNC_QUEUE_RETRY_DELAY_MS", "60000"),
+        ),
+        "SYNC_RECONCILE_INTERVAL_MS": secrets.get(
+            "SYNC_RECONCILE_INTERVAL_MS",
+            env.get("SYNC_RECONCILE_INTERVAL_MS", "21600000"),
+        ),
+        "SYNC_RECONCILE_LOOKBACK_MS": secrets.get(
+            "SYNC_RECONCILE_LOOKBACK_MS",
+            env.get("SYNC_RECONCILE_LOOKBACK_MS", "300000"),
+        ),
+        "HUBSPOT_WEBHOOK_PUBLIC_URL": secrets.get(
+            "HUBSPOT_WEBHOOK_PUBLIC_URL",
+            env.get(
+                "HUBSPOT_WEBHOOK_PUBLIC_URL",
+                f"{oauth_issuer_url}/webhooks/hubspot",
             ),
         ),
     },

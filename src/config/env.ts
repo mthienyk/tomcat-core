@@ -97,6 +97,19 @@ const EnvSchema = z.object({
   CORS_ALLOWED_ORIGINS: z.string().optional(),
   DATABASE_URL: z.string().optional(),
   SYNC_OVERLAP_GRACE_MINUTES: z.coerce.number().int().positive().default(20),
+  HUBSPOT_MAX_REQUESTS_PER_10S: z.coerce.number().int().positive().max(190).default(90),
+  HUBSPOT_WEBHOOK_CLIENT_SECRET: z.string().optional(),
+  HUBSPOT_WEBHOOK_PUBLIC_URL: z.string().url().optional(),
+  SYNC_QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5_000),
+  SYNC_QUEUE_BATCH_SIZE: z.coerce.number().int().positive().max(20).default(3),
+  SYNC_QUEUE_STALE_JOB_MS: z.coerce.number().int().positive().default(600_000),
+  SYNC_QUEUE_RETRY_DELAY_MS: z.coerce.number().int().positive().default(60_000),
+  SYNC_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(6 * 60 * 60_000),
+  SYNC_RECONCILE_LOOKBACK_MS: z.coerce.number().int().nonnegative().default(300_000),
 });
 
 export type RawEnv = z.infer<typeof EnvSchema>;
@@ -126,6 +139,9 @@ export type AppConfig = {
   };
     connectors: {
       hubspotToken: string | undefined;
+      hubspotMaxRequestsPer10s: number;
+      hubspotWebhookClientSecret: string | undefined;
+      hubspotWebhookPublicUrl: string | undefined;
       driveServiceAccountJson: string | undefined;
       driveServiceAccountFile: string | undefined;
       driveSharedDriveId: string | undefined;
@@ -156,6 +172,12 @@ export type AppConfig = {
   };
   sync: {
     overlapGraceMinutes: number;
+    queuePollIntervalMs: number;
+    queueBatchSize: number;
+    queueStaleJobMs: number;
+    queueRetryDelayMs: number;
+    reconcileIntervalMs: number;
+    reconcileLookbackMs: number;
   };
 };
 
@@ -203,6 +225,9 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     },
     connectors: {
       hubspotToken: parsed.HUBSPOT_API_TOKEN,
+      hubspotMaxRequestsPer10s: parsed.HUBSPOT_MAX_REQUESTS_PER_10S,
+      hubspotWebhookClientSecret: parsed.HUBSPOT_WEBHOOK_CLIENT_SECRET,
+      hubspotWebhookPublicUrl: parsed.HUBSPOT_WEBHOOK_PUBLIC_URL,
       driveServiceAccountJson: parsed.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON,
       driveServiceAccountFile: parsed.GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE,
       driveSharedDriveId: parsed.GOOGLE_DRIVE_SHARED_DRIVE_ID,
@@ -233,6 +258,12 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     },
     sync: {
       overlapGraceMinutes: parsed.SYNC_OVERLAP_GRACE_MINUTES,
+      queuePollIntervalMs: parsed.SYNC_QUEUE_POLL_INTERVAL_MS,
+      queueBatchSize: parsed.SYNC_QUEUE_BATCH_SIZE,
+      queueStaleJobMs: parsed.SYNC_QUEUE_STALE_JOB_MS,
+      queueRetryDelayMs: parsed.SYNC_QUEUE_RETRY_DELAY_MS,
+      reconcileIntervalMs: parsed.SYNC_RECONCILE_INTERVAL_MS,
+      reconcileLookbackMs: parsed.SYNC_RECONCILE_LOOKBACK_MS,
     },
   };
 };

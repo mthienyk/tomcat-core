@@ -14,6 +14,7 @@ import { buildCompetitiveHistoryService } from "../src/services/competitiveHisto
 import { buildCompanyActivitySummaryService } from "../src/services/companyActivitySummary.js";
 import { buildFindLatestDeckService } from "../src/services/findLatestDeck.js";
 import { buildCompanyDriveFolderService } from "../src/services/companyDriveFolder.js";
+import { buildBpWorkflowService } from "../src/services/bpWorkflow.js";
 import { buildBoardBriefService } from "../src/services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "../src/services/portfolioSignalDigest.js";
 import { bootstrapSignalHub } from "../src/services/signalHub/bootstrap.js";
@@ -80,6 +81,8 @@ const main = async (): Promise<void> => {
     signalHubEnabled: config.signalHub.enabled,
   });
 
+  const bpWorkflow = buildBpWorkflowService({ connectors, society });
+
   const services = {
     startups,
     society,
@@ -91,6 +94,7 @@ const main = async (): Promise<void> => {
     companyDriveFolder,
     boardBrief,
     portfolioSignalDigest,
+    bpWorkflow,
   };
   const auditor = createAuditor(logger);
   const resolveCaller = createMcpCallerResolver(config, coreStore);

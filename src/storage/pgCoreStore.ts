@@ -30,6 +30,13 @@ import type {
 } from "../domain/entities.js";
 import type { Role } from "../domain/identity.js";
 import type { ClubTier } from "../domain/entities.js";
+import type {
+  EnqueueSyncJobInput,
+  HubspotCompanySyncState,
+  SyncQueueJob,
+  SyncQueueStats,
+} from "../domain/syncQueue.js";
+import { buildHubspotActivityDedupeKey } from "../domain/syncQueue.js";
 
 const now = (): string => new Date().toISOString();
 
@@ -135,6 +142,36 @@ type FreshnessRow = {
   last_sync_at: string | null;
   records_total: number;
   healthy: boolean;
+  updated_at: string;
+};
+
+type SyncQueueRow = {
+  id: string;
+  dataset: string;
+  entity_kind: string;
+  entity_id: string;
+  reason: string;
+  priority: number;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  scheduled_at: string;
+  locked_at: string | null;
+  locked_by: string | null;
+  last_error: string | null;
+  dedupe_key: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type HubspotCompanySyncStateRow = {
+  company_id: string;
+  last_activity_sync_at: string | null;
+  last_hubspot_modified_at: string | null;
+  notes_count: number;
+  deals_count: number;
+  meetings_count: number;
+  notes_fingerprint: string | null;
   updated_at: string;
 };
 
@@ -247,6 +284,38 @@ const mapFreshness = (r: FreshnessRow): DatasetFreshness => ({
   lastSyncAt: r.last_sync_at ?? undefined,
   recordsTotal: r.records_total,
   healthy: r.healthy,
+  updatedAt: r.updated_at,
+});
+
+const mapSyncQueueJob = (r: SyncQueueRow): SyncQueueJob => ({
+  id: r.id,
+  dataset: r.dataset,
+  entityKind: r.entity_kind,
+  entityId: r.entity_id,
+  reason: r.reason as SyncQueueJob["reason"],
+  priority: r.priority,
+  status: r.status as SyncQueueJob["status"],
+  attempts: r.attempts,
+  maxAttempts: r.max_attempts,
+  scheduledAt: r.scheduled_at,
+  lockedAt: r.locked_at ?? undefined,
+  lockedBy: r.locked_by ?? undefined,
+  lastError: r.last_error ?? undefined,
+  dedupeKey: r.dedupe_key,
+  createdAt: r.created_at,
+  updatedAt: r.updated_at,
+});
+
+const mapHubspotCompanySyncState = (
+  r: HubspotCompanySyncStateRow,
+): HubspotCompanySyncState => ({
+  companyId: r.company_id,
+  lastActivitySyncAt: r.last_activity_sync_at ?? undefined,
+  lastHubspotModifiedAt: r.last_hubspot_modified_at ?? undefined,
+  notesCount: r.notes_count,
+  dealsCount: r.deals_count,
+  meetingsCount: r.meetings_count,
+  notesFingerprint: r.notes_fingerprint ?? undefined,
   updatedAt: r.updated_at,
 });
 
@@ -666,6 +735,225 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
         select * from dataset_freshness order by dataset
       `;
       return rows.map(mapFreshness);
+    },
+
+    async refreshDatasetFreshness(dataset: string): Promise<void> {
+      await refreshFreshnessInternal(db, dataset);
+    },
+
+    async enqueueSyncJob(input: EnqueueSyncJobInput): Promise<"created" | "deduped"> {
+      const t = now();
+      const id = randomUUID();
+      const dedupeKey =
+        input.entityKind === "startup" && input.dataset === "hubspot.activity"
+          ? buildHubspotActivityDedupeKey(input.entityId)
+          : `${input.dataset}:${input.entityKind}:${input.entityId}`;
+      const scheduledAt = input.scheduledAt ?? t;
+      const priority = input.priority ?? 100;
+      const maxAttempts = input.maxAttempts ?? 5;
+
+      const existing = await db<{ id: string }[]>`
+        select id from sync_queue
+        where dedupe_key = ${dedupeKey}
+          and status in ('pending', 'running')
+        limit 1
+      `;
+      if (existing.length > 0) return "deduped";
+
+      await db`
+        insert into sync_queue (
+          id, dataset, entity_kind, entity_id, reason, priority, status,
+          attempts, max_attempts, scheduled_at, dedupe_key, created_at, updated_at
+        )
+        values (
+          ${id}, ${input.dataset}, ${input.entityKind}, ${input.entityId},
+          ${input.reason}, ${priority}, 'pending', 0, ${maxAttempts},
+          ${scheduledAt}, ${dedupeKey}, ${t}, ${t}
+        )
+      `;
+      return "created";
+    },
+
+    async claimSyncJobs(
+      dataset: string,
+      limit: number,
+      workerId: string,
+    ): Promise<SyncQueueJob[]> {
+      const t = now();
+      const rows = await db<SyncQueueRow[]>`
+        update sync_queue
+        set
+          status = 'running',
+          locked_at = ${t},
+          locked_by = ${workerId},
+          attempts = attempts + 1,
+          updated_at = ${t}
+        where id in (
+          select id from sync_queue
+          where dataset = ${dataset}
+            and status = 'pending'
+            and scheduled_at <= ${t}
+          order by priority asc, scheduled_at asc
+          limit ${limit}
+          for update skip locked
+        )
+        returning *
+      `;
+      return rows.map(mapSyncQueueJob);
+    },
+
+    async completeSyncJob(id: string): Promise<void> {
+      const t = now();
+      await db`
+        update sync_queue
+        set status = 'done', locked_at = null, locked_by = null, updated_at = ${t}
+        where id = ${id}
+      `;
+    },
+
+    async failSyncJob(
+      id: string,
+      errorMessage: string,
+      retryDelayMs: number,
+    ): Promise<void> {
+      const t = now();
+      const retryAt = new Date(Date.now() + retryDelayMs).toISOString();
+      await db`
+        update sync_queue
+        set
+          status = case
+            when attempts >= max_attempts then 'dead'
+            else 'pending'
+          end,
+          scheduled_at = case
+            when attempts >= max_attempts then scheduled_at
+            else ${retryAt}
+          end,
+          last_error = ${errorMessage.slice(0, 2000)},
+          locked_at = null,
+          locked_by = null,
+          updated_at = ${t}
+        where id = ${id}
+      `;
+    },
+
+    async getSyncQueueStats(dataset: string): Promise<SyncQueueStats> {
+      const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+      const rows = await db<
+        { status: string; count: string }[]
+      >`
+        select status, count(*)::text as count
+        from sync_queue
+        where dataset = ${dataset}
+        group by status
+      `;
+      const doneRows = await db<{ count: string }[]>`
+        select count(*)::text as count
+        from sync_queue
+        where dataset = ${dataset}
+          and status = 'done'
+          and updated_at >= ${since}
+      `;
+      const byStatus = new Map(rows.map((r) => [r.status, parseInt(r.count, 10)]));
+      return {
+        pending: byStatus.get("pending") ?? 0,
+        running: byStatus.get("running") ?? 0,
+        failed: byStatus.get("failed") ?? 0,
+        dead: byStatus.get("dead") ?? 0,
+        doneLast24h: parseInt(doneRows[0]?.count ?? "0", 10),
+      };
+    },
+
+    async releaseStaleSyncJobs(staleAfterMs: number): Promise<number> {
+      const cutoff = new Date(Date.now() - staleAfterMs).toISOString();
+      const t = now();
+      const rows = await db<{ id: string }[]>`
+        update sync_queue
+        set
+          status = 'pending',
+          locked_at = null,
+          locked_by = null,
+          updated_at = ${t}
+        where status = 'running' and locked_at < ${cutoff}
+        returning id
+      `;
+      return rows.length;
+    },
+
+    async upsertHubspotCompanySyncState(
+      state: HubspotCompanySyncState,
+    ): Promise<void> {
+      const t = now();
+      await db`
+        insert into hubspot_company_sync_state (
+          company_id, last_activity_sync_at, last_hubspot_modified_at,
+          notes_count, deals_count, meetings_count, notes_fingerprint, updated_at
+        )
+        values (
+          ${state.companyId},
+          ${state.lastActivitySyncAt ?? null},
+          ${state.lastHubspotModifiedAt ?? null},
+          ${state.notesCount},
+          ${state.dealsCount},
+          ${state.meetingsCount},
+          ${state.notesFingerprint ?? null},
+          ${t}
+        )
+        on conflict (company_id) do update set
+          last_activity_sync_at = excluded.last_activity_sync_at,
+          last_hubspot_modified_at = excluded.last_hubspot_modified_at,
+          notes_count = excluded.notes_count,
+          deals_count = excluded.deals_count,
+          meetings_count = excluded.meetings_count,
+          notes_fingerprint = excluded.notes_fingerprint,
+          updated_at = excluded.updated_at
+      `;
+    },
+
+    async getHubspotCompanySyncState(
+      companyId: string,
+    ): Promise<HubspotCompanySyncState | undefined> {
+      const rows = await db<HubspotCompanySyncStateRow[]>`
+        select * from hubspot_company_sync_state where company_id = ${companyId}
+      `;
+      return rows[0] ? mapHubspotCompanySyncState(rows[0]) : undefined;
+    },
+
+    async listHubspotCompanySyncStatesMissingActivity(): Promise<string[]> {
+      const rows = await db<{ id: string }[]>`
+        select s.id
+        from startups s
+        left join hubspot_company_sync_state h on h.company_id = s.id
+        where h.company_id is null
+        order by s.name
+      `;
+      return rows.map((r) => r.id);
+    },
+
+    async getSyncCursor(
+      dataset: string,
+      cursorKey = "default",
+    ): Promise<string | undefined> {
+      const rows = await db<{ cursor_value: string }[]>`
+        select cursor_value from sync_cursors
+        where dataset = ${dataset} and cursor_key = ${cursorKey}
+      `;
+      return rows[0]?.cursor_value;
+    },
+
+    async setSyncCursor(
+      dataset: string,
+      cursorValue: string,
+      cursorKey = "default",
+    ): Promise<void> {
+      const t = now();
+      await db`
+        insert into sync_cursors (dataset, cursor_key, cursor_value, updated_at)
+        values (${dataset}, ${cursorKey}, ${cursorValue}, ${t})
+        on conflict (dataset, cursor_key) do update set
+          cursor_value = excluded.cursor_value,
+          updated_at = excluded.updated_at
+      `;
     },
 
     // --- Users ---

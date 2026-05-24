@@ -86,6 +86,10 @@ const fakeServices = (): AgentToolServices =>
     findLatestDeck: {
       findLatestDeck: vi.fn(),
     },
+    bpWorkflow: {
+      assembleCompanyFinancePack: vi.fn(),
+      draftBpTabDebt: vi.fn(),
+    },
   }) as unknown as AgentToolServices;
 
 describe("runAgentLoop", () => {

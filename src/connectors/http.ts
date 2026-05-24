@@ -25,6 +25,7 @@ export type HttpResponse = {
   ok: boolean;
   text(): Promise<string>;
   json<T>(): Promise<T>;
+  arrayBuffer(): Promise<ArrayBuffer>;
 };
 
 export type HttpClient = {
@@ -102,6 +103,7 @@ export const createHttpClient = (options: HttpClientOptions): HttpClient => {
             ok: true,
             text: () => res.text(),
             json: async <T>() => (await res.json()) as T,
+            arrayBuffer: () => res.arrayBuffer(),
           };
         }
 

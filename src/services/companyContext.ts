@@ -17,10 +17,12 @@ import {
   clampCrmLimit,
 } from "./crmActivityLimits.js";
 import { prepareDriveDocumentList } from "./driveDocuments.js";
+import { listDriveFilesForTokens } from "./driveTokenLookup.js";
 import {
   buildDriveTokens,
   matchConfidence,
   normalizeEntityKey,
+  rankDriveTokens,
   tokenOverlapScore,
   type DriveTokenCandidate,
 } from "./entityResolution.js";
@@ -45,6 +47,8 @@ export type ResolveEntityOutput = {
 
 export type ListCompanyDocumentsOutput = {
   portfolioCompanyId: string;
+  driveTokenUsed: string;
+  driveTokensTried: string[];
   documents: Array<{
     driveFileId: string;
     title: string;
@@ -176,12 +180,28 @@ export const buildCompanyContextService = (deps: {
       titleContains?: string | undefined;
       limit?: number | undefined;
       includeBinaries?: boolean | undefined;
+      driveTokens?: DriveTokenCandidate[] | undefined;
     },
   ): Promise<ListCompanyDocumentsOutput> => {
     const warnings: string[] = [];
     await society.ensurePortfolioCompanyInScope(caller, portfolioCompanyId);
 
-    const raw = await connectors.drive.listBoardPacksForCompany(portfolioCompanyId);
+    const driveTokensTried = rankDriveTokens(
+      portfolioCompanyId,
+      options?.driveTokens ?? [],
+    );
+    const lookup = await listDriveFilesForTokens(
+      connectors.drive,
+      driveTokensTried,
+    );
+    const driveTokenUsed = lookup?.token ?? driveTokensTried[0] ?? portfolioCompanyId;
+    const raw = lookup?.files ?? [];
+
+    if (lookup && lookup.token !== driveTokensTried[0] && driveTokensTried[0]) {
+      warnings.push(
+        `Drive files found under alternate token "${lookup.token}" (primary "${driveTokensTried[0]}" was empty). Reuse driveTokens from resolve_entity.`,
+      );
+    }
     let filtered = [...raw];
     const needle = options?.titleContains?.trim();
     if (needle) {
@@ -219,11 +239,17 @@ export const buildCompanyContextService = (deps: {
 
     if (documents.length === 0) {
       warnings.push(
-        "No Drive files matched. Drive search relies on substring matches on the portfolio company identifier.",
+        `No Drive files matched after trying tokens: ${driveTokensTried.join(", ")}. Pass driveTokens from resolve_entity when HubSpot and Monday names diverge.`,
       );
     }
 
-    return { portfolioCompanyId, documents, warnings };
+    return {
+      portfolioCompanyId,
+      driveTokenUsed,
+      driveTokensTried,
+      documents,
+      warnings,
+    };
   };
 
   const listPortfolioContext = async (

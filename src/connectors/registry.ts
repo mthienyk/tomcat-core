@@ -12,6 +12,7 @@ import {
   createUnconfiguredMondayConnector,
 } from "./monday.js";
 import { createUnconfiguredInvestorsConnector } from "./investors.js";
+import { createHubspotRateLimiter } from "../sync/rateLimiter.js";
 import type {
   DriveConnector,
   HubspotConnector,
@@ -33,9 +34,15 @@ export const buildConnectors = (config: AppConfig): Connectors => {
     (driveJson && driveJson.length > 0 ? driveJson : undefined) ??
     (driveFile && driveFile.length > 0 ? driveFile : undefined);
 
+  const hubspotRateLimiter = createHubspotRateLimiter(
+    config.connectors.hubspotMaxRequestsPer10s,
+  );
+
   return {
     hubspot: config.connectors.hubspotToken
-      ? createHttpHubspotConnector(config.connectors.hubspotToken)
+      ? createHttpHubspotConnector(config.connectors.hubspotToken, {
+          rateLimiter: hubspotRateLimiter,
+        })
       : createUnconfiguredHubspotConnector(),
     drive: driveCredentialsSource
       ? createHttpDriveConnector(driveCredentialsSource, config.connectors.driveSharedDriveId)

@@ -18,6 +18,7 @@ import { buildLlmRegistry } from "./llm/registry.js";
 import { buildSocietyService } from "./services/society.js";
 import { buildStartupsService } from "./services/startups.js";
 import { buildCompanyContextService } from "./services/companyContext.js";
+import { buildBpWorkflowService } from "./services/bpWorkflow.js";
 import { buildAiService } from "./services/ai.js";
 import { createPgCoreStore } from "./storage/pgCoreStore.js";
 import { createDb } from "./storage/pgClient.js";
@@ -42,6 +43,8 @@ import {
 import { registerConnectorRoutes } from "./api/routes/connectors.js";
 import { registerSignalRoutes } from "./api/routes/signals.js";
 import { registerSignalsWebhookRoutes } from "./api/routes/signalsWebhook.js";
+import { registerHubspotWebhookRoutes } from "./api/routes/hubspotWebhook.js";
+import { registerRawBodyHook } from "./api/rawBody.js";
 import { registerMcpHttpRoutes } from "./mcp/http.js";
 import { registerMcpOauthRoutes } from "./api/routes/mcpOauth.js";
 import { McpOAuthService } from "./auth/mcpOauth/service.js";
@@ -82,6 +85,8 @@ export const buildServer = async (
     origin:
       config.cors.allowedOrigins.length > 0 ? config.cors.allowedOrigins : true,
   });
+
+  registerRawBodyHook(app);
 
   const auditor = createAuditor(app.log as unknown as Logger);
 
@@ -213,6 +218,8 @@ export const buildServer = async (
     signalHubEnabled: config.signalHub.enabled,
   });
 
+  const bpWorkflow = buildBpWorkflowService({ connectors, society });
+
   // --- Sync scheduler (when CoreStore available) ---
   let syncScheduler: ReturnType<typeof createSyncScheduler> | undefined;
   if (coreStore) {
@@ -225,7 +232,15 @@ export const buildServer = async (
       },
       pgDb!,
       coreStore,
-      { overlapGraceMinutes: config.sync.overlapGraceMinutes },
+      {
+        overlapGraceMinutes: config.sync.overlapGraceMinutes,
+        queuePollIntervalMs: config.sync.queuePollIntervalMs,
+        queueBatchSize: config.sync.queueBatchSize,
+        queueStaleJobMs: config.sync.queueStaleJobMs,
+        queueRetryDelayMs: config.sync.queueRetryDelayMs,
+        reconcileIntervalMs: config.sync.reconcileIntervalMs,
+        reconcileLookbackMs: config.sync.reconcileLookbackMs,
+      },
     );
     syncScheduler.start();
   }
@@ -282,6 +297,7 @@ export const buildServer = async (
         companyDriveFolder,
         boardBrief,
         portfolioSignalDigest,
+        bpWorkflow,
       },
       auditor,
       auth,
@@ -305,6 +321,21 @@ export const buildServer = async (
   );
 
   if (coreStore) {
+    const webhookPublicUrl =
+      config.connectors.hubspotWebhookPublicUrl
+      ?? (config.auth.oauthBroker.issuerUrl
+        ? `${config.auth.oauthBroker.issuerUrl.replace(/\/$/, "")}/webhooks/hubspot`
+        : undefined);
+
+    registerHubspotWebhookRoutes(app, {
+      store: coreStore,
+      clientSecret: config.connectors.hubspotWebhookClientSecret,
+      ...(webhookPublicUrl ? { publicUrl: webhookPublicUrl } : {}),
+      logger: app.log as unknown as Logger,
+    });
+  }
+
+  if (coreStore) {
     registerAdminRoutes(app, auth, coreStore);
   }
 
@@ -321,6 +352,7 @@ export const buildServer = async (
       companyDriveFolder,
       boardBrief,
       portfolioSignalDigest,
+      bpWorkflow,
       auditor,
     });
     registerAiRoutes(app, auth, ai);

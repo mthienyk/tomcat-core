@@ -21,7 +21,10 @@ Required in `.env.secrets` for deploy:
 | `GOOGLE_OAUTH_CLIENT_ID` | Google Desktop client id (CLI + ID token verification) |
 | `GOOGLE_OAUTH_WEB_CLIENT_ID` | Google Web client id (MCP OAuth proxy) |
 | `GOOGLE_OAUTH_WEB_CLIENT_SECRET` | Google Web client secret (MCP OAuth proxy) |
+| `HUBSPOT_WEBHOOK_CLIENT_SECRET` | Optional — HubSpot app client secret for `/webhooks/hubspot` |
 | `SIGNAL_HUB_ENABLED` | Optional override (`false` default in deploy script) |
+
+Sync engine tunables (`HUBSPOT_MAX_REQUESTS_PER_10S`, `SYNC_QUEUE_*`, `SYNC_RECONCILE_*`) can live in `.env` or `.env.secrets`; deploy reads both. See [docs/hubspot-sync-engine.md](./docs/hubspot-sync-engine.md).
 
 Human auth: [docs/auth-google-mcp.md](./docs/auth-google-mcp.md). After deploy, add team members to the `users` table before they can call protected routes with Google tokens.
 
@@ -37,6 +40,13 @@ CORS_ALLOWED_ORIGINS=https://www.tomcat.eu \
 ./scripts/scaleway/deploy-container.sh
 curl "$(grep HTTPS_URL scripts/scaleway/.infra-state.env | cut -d= -f2-)/health"
 npm run auth:status   # local session check
+```
+
+**Sync env only** (new config keys, no image rebuild):
+
+```bash
+chmod +x scripts/scaleway/patch-container-env.sh
+./scripts/scaleway/patch-container-env.sh
 ```
 
 Push sur `main` déclenche aussi le workflow `.github/workflows/deploy.yml` (build → deploy → smoke).

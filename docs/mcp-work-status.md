@@ -1,6 +1,6 @@
 # MCP Tomcat — note de reprise
 
-Dernière mise à jour : 2026-05-24 (MCP OAuth remote + Signal Hub gate + entity resolution)
+Dernière mise à jour : 2026-05-24 (BP playbook, Drive prod fix, multi-token)
 
 Document de handoff pour reprendre le travail sur le MCP Tomcat Core. Spec normative : [mcp-use-cases.md](./mcp-use-cases.md).
 
@@ -12,11 +12,13 @@ Construire un **MCP opinionné** pour Tomcat : des tools orientés tâches (pas 
 
 | Surface | Auth | Tools exposés |
 |---------|------|---------------|
-| **Remote HTTP** (`/mcp` Scaleway) | MCP OAuth (Cursor) ou Bearer Google manuel | 18 tools (Signal Hub off) ou 27 (Signal Hub on) |
+| **Remote HTTP** (`/mcp` Scaleway) | MCP OAuth (Cursor) ou Bearer Google manuel | **19** tools (Signal Hub off) ou **28** (Signal Hub on) |
 | **stdio local** | Google session (`npm run auth:google`) | Idem, piloté par `SIGNAL_HUB_ENABLED` |
 | **HTTP `/ai/query`** | Bearer Google / service token | Registry complet (Signal Hub non filtré aujourd'hui) |
 
 Principe clé : **resolve first** (`resolve_entity`) avant les reads ciblés. Outputs structurés via `ToolRunEnvelope`.
+
+**Business Plan (Guillaume)** : appeler **`read_bp_playbook` en premier** — Claude n'a pas la méthode en mémoire ; le playbook + descriptions tools l'éduquent.
 
 ---
 
@@ -25,73 +27,101 @@ Principe clé : **resolve first** (`resolve_entity`) avant les reads ciblés. Ou
 ```
 src/agent/toolRegistry.ts     ← source unique (schemas, handlers, access)
         │
-        ├── src/agent/toolCatalog.ts   ← filtre Signal Hub (listMcpAgentTools)
-        │         │
-        │         └── src/mcp/server.ts + src/mcp/http.ts  (remote + stdio)
+        ├── src/agent/toolCopy.ts        ← descriptions éducatives (WHEN TO USE, THEN CONSIDER)
+        ├── src/agent/toolCatalog.ts     ← filtre Signal Hub (listMcpAgentTools)
+        │         └── src/mcp/server.ts + src/mcp/http.ts + src/mcp/instructions.ts
         │
-        ├── src/services/boardBrief.ts          ← signalHubEnabled
-        ├── src/services/portfolioSignalDigest.ts
+        ├── src/playbooks/bp/playbook.md ← spec méthode BP (servie par read_bp_playbook)
+        ├── src/services/bpPlaybook.ts
         │
-        └── src/services/entityResolution.ts    ← scoring + driveTokens[]
-                  │
-                  ├── src/services/companyContext.ts  (resolve_entity)
-                  └── src/services/findLatestDeck.ts  (multi-token Drive lookup)
+        ├── src/services/entityResolution.ts    ← scoring + driveTokens[]
+        ├── src/services/driveTokenLookup.ts    ← listDriveFiles/FoldersForTokens
+        ├── src/services/companyContext.ts      ← resolve_entity, list_company_documents
+        ├── src/services/companyDriveFolder.ts  ← resolve_company_drive_folder
+        └── src/services/findLatestDeck.ts
 ```
 
-### MCP OAuth remote (prod)
+Build copie `src/playbooks/` → `dist/playbooks/` (`npm run build`).
 
-- Routes : `/.well-known/*`, `/oauth/register`, `/oauth/authorize`, `/oauth/callback/google`, `/oauth/token`, `/oauth/revoke`
-- Cursor se connecte sans header Bearer statique dans `mcp.json`
-- Tokens opaques (sha256 en base), PKCE S256, refresh rotation
-- **Piège résolu** : ne pas laisser `"Authorization": "Bearer …"` stale dans `mcp.json` quand OAuth est actif (Cursor priorise le header sur le flow OAuth)
-- **Piège résolu** : le resolver MCP OAuth doit passer **avant** le resolver Google JWT (tokens opaques ≠ JWT)
+---
 
-Voir [docs/auth-google-mcp.md](./auth-google-mcp.md).
+## Drive prod — fix et validation
 
-### Signal Hub — feature flag
+**Cause racine MCP remote « vide »** : `GOOGLE_DRIVE_SHARED_DRIVE_ID` manquant en prod (`0AO2MAh9ncUDNUk9PVA` = Tomcat Drive).
 
-| `SIGNAL_HUB_ENABLED` | Effet |
-|----------------------|--------|
-| `false` (défaut) | 9 tools `signal_hub_*` absents de `tools/list` ; pas de suggestions Signal Hub ; queue ingest ne démarre pas |
-| `true` | Comportement complet (Serper + Unipile + 9 tools) |
+| Action | Statut |
+|--------|--------|
+| `GOOGLE_DRIVE_SHARED_DRIVE_ID` dans `deploy-container.sh` + `.env.example` | ✅ |
+| Multi-token `driveTokens[]` sur `list_company_documents` + `resolve_company_drive_folder` | ✅ |
+| Redeploy image `6883d5e` | ✅ (container ready, `/health/connectors` drive ok) |
+| Validation MCP remote 3 boîtes (Seedext, Fincome, Wenabi) | ⚠️ OAuth Cursor à reconnecter ; validé en local |
 
-Activer quand prêt :
+**Scripts d'audit BP (Drive)** :
 
-```bash
-SIGNAL_HUB_ENABLED=true
-SERPER_API_KEY=...
-# UNIPILE_* si feed privé
-```
+- `scripts/download-bp-study.mjs` — échantillon xlsx → `/tmp/bp-study/`
+- `scripts/list-bp-drive.mjs` — listing rapide
+- `scripts/analyze-recent-bps.mjs` — heuristiques filenames
+- `scripts/classify-bp-workflows.mjs` — scan Drive workflow types
 
-Scaleway : `deploy-container.sh` injecte `SIGNAL_HUB_ENABLED=false` par défaut.
+---
 
-Les routes HTTP `/signals/*` restent montées (admin / webhooks) même quand le flag est off.
+## Business Plan — état et décisions
 
-### Entity resolution — 3 couches
+### Réalité portfolio (audit Drive, ~22 xlsx analysés)
 
-| Couche | Statut | Rôle |
-|--------|--------|------|
-| **1. Heuristiques** | ✅ Live | `matchConfidence`, token overlap, alias parentétique `(ex WENABI)` → `driveTokens[]` sur `resolve_entity` |
-| **2. Multi-token Drive** | ✅ partiel | `find_latest_deck` essaie les tokens dans l'ordre (`listDriveFilesForTokens`) |
-| **3. Alias store persistant** | 🔜 | Table `entity_aliases`, confirmations humaines |
+- **0 %** des livrables portfolio utilisent le template canonique `MAJ Template BP SaaS.xlsx` (12 onglets)
+- **~70 % transform** — BP founder custom → restructurer au format Tomcat
+- **~15 % generate** — inputs seuls (DSN, prêts, historique), greenfield
+- **~15 % hybrid** — BP founder + overlay DSN/prêts frais (ex. Yuccan, Webyn)
+- « BP Tomcat » dans le filename **≠** template canonique (souvent format maison)
 
-**Exemple Wenabi** : HubSpot `"Wenabi"`, Monday `"KOMEET (ex WENABI)"` (si en portefeuille). `resolve_entity("Wenabi")` renvoie `driveTokens` incluant le nom Monday et l'alias extrait `WENABI`. `find_latest_deck` tente chaque token jusqu'à un hit Drive.
+### Trois modes (même moteur, entrées différentes)
 
-**Limites connues (edge cases)**
+| Mode | Entrée | Tool planned |
+|------|--------|--------------|
+| **transform** | BP founder `.xlsx` custom | `restructure_founder_bp` |
+| **generate** | DSN export, prêts, historique | `draft_business_plan` |
+| **hybrid** | Les deux | transform puis overlay onglets RH/Financement |
 
-| Cas | Comportement | Mitigation |
-|-----|--------------|------------|
-| Query substring ambiguë (`"atlas"` → Atlas + Atlas Labs) | `needsClarification: true` | Utilisateur choisit ; ou query plus précise |
-| HubSpot-only, dossier Drive sous alias Monday | `find_latest_deck` OK si `driveTokens` passés | `prepare_board_brief` / `resolve_company_drive_folder` utilisent encore **un seul** token Monday ou nom HubSpot |
-| Dedup tokens normalisés | `Wenabi` et `WENABI` fusionnés (même clé lower-case) | Volontaire — évite les appels Drive redondants |
-| Internal scope Drive | `ensurePortfolioCompanyInScope` accepte tout token pour `internal_team` | By design pour les deals hors Monday |
-| Signal Hub off + `/ai/query` | Agent HTTP voit encore les tools Signal Hub | Filtrage MCP seulement ; aligner plus tard si besoin |
+**Décision** : prévoir **les 3 modes** dès la foundation ; routeur dans `assemble_company_finance_pack` (planned).
+
+### Template dans le repo
+
+- **Pas de xlsx binaire dans git**
+- Référence Drive : `05. Templates BP / MAJ Template BP SaaS.xlsx`
+- Repo = spec markdown + Zod + `defaults.yaml`, regénérée via script `extract-bp-template-spec` (à faire)
+
+### DSN V1
+
+- **Pas de parser XML DSN** en V1
+- Input = export Pennylane / table Excel / grid structurée (`parse_payroll_input` planned)
+- Classification filename ≠ parsing contenu
+
+### Critères benchmark (go/no-go)
+
+| Métrique | Seuil |
+|----------|-------|
+| Structure 12 onglets | 100 % |
+| Financement vs prêts identifiés | 1:1 |
+| P&L bottom line 12 mois | ±5 % |
+| Plan de trésorerie | ±10 % |
+| RH vs payroll input | ±5 % |
+
+Benchmarks : **eSwit** (transform), **Yuccan/Webyn** (hybrid).
+
+### Éducation orchestrateur (Claude)
+
+| Couche | Fichier |
+|--------|---------|
+| Instructions MCP | `src/mcp/instructions.ts` — section BP workflows |
+| Playbook on-demand | `read_bp_playbook` → `src/playbooks/bp/playbook.md` |
+| Descriptions tools | `src/agent/toolCopy.ts` — chaîne resolve → folder → docs → excerpt |
 
 ---
 
 ## Tools livrés
 
-**CRM / portfolio / Drive (18 sans Signal Hub)**
+**CRM / portfolio / Drive / playbook (19 sans Signal Hub)**
 
 - `search_startups`, `read_startup_notes`, `read_startup_deals`, `read_startup_meetings`
 - `list_portfolio_signals`, `build_board_prep_context`, `prepare_board_brief`
@@ -101,6 +131,7 @@ Les routes HTTP `/signals/*` restent montées (admin / webhooks) même quand le 
 - `list_company_documents`, `read_company_document_excerpt`
 - `list_portfolio_context`, `build_company_360_context`
 - `find_competitive_history`, `resolve_company_drive_folder`
+- **`read_bp_playbook`** ← méthode BP Tomcat (modes, mapping, benchmark)
 
 **Signal Hub (+9 si `SIGNAL_HUB_ENABLED=true`)**
 
@@ -108,25 +139,23 @@ Les routes HTTP `/signals/*` restent montées (admin / webhooks) même quand le 
 - `signal_hub_recent_signals`, `signal_hub_search_signals`, `signal_hub_resolve_entity`
 - `signal_hub_list_accounts`, `signal_hub_request_refresh`, `signal_hub_freeze_account`
 
+**Planned (documentés dans playbook, pas encore callable)**
+
+- `assemble_company_finance_pack`, `restructure_founder_bp`, `draft_business_plan`
+- `draft_bp_tab_debt`, `draft_bp_tab_payroll`, `draft_bp_tab_revenue`
+- `export_business_plan` (approval required)
+
 ---
 
-## Leçons live (2026-05-24)
+## Entity resolution — 3 couches
 
-### Ce qui marche en prod (remote MCP)
+| Couche | Statut | Rôle |
+|--------|--------|------|
+| **1. Heuristiques** | ✅ Live | `matchConfidence`, alias `(ex WENABI)` → `driveTokens[]` |
+| **2. Multi-token Drive** | ✅ Live | `find_latest_deck`, `list_company_documents`, `resolve_company_drive_folder` |
+| **3. Alias store persistant** | 🔜 | Table `entity_aliases` |
 
-- OAuth Cursor → `/mcp` sans token manuel
-- `resolve_entity`, `summarize_company_activity`, `find_competitive_history`, `prepare_board_brief`, `build_company_360_context`
-- Portfolio Monday : Addeus, Bloom, Seedext, Kabaun, Aistos, Fincome, Kaptcher, Magma
-- Wenabi : HubSpot-only (pas dans Monday portfolio) ; CRM OK ; Drive dépend du token utilisé
-
-### Frictions restantes
-
-| Friction | Mitigation actuelle | Prochaine étape |
-|----------|---------------------|-----------------|
-| Drive naming cross-system | `driveTokens[]` + multi-token dans `find_latest_deck` | Étendre à `prepare_board_brief`, `resolve_company_drive_folder` |
-| BP xlsx binaire | Warning `DRIVE_BINARY_NOT_EXTRACTABLE` | Pas de faux retry excerpt |
-| Signal Hub pas encore actif | Flag off, tools masqués | `SIGNAL_HUB_ENABLED=true` + Serper quand prêt |
-| `signal_hub_add_watched` 403 admin | Rôle `admin` ≠ `internal_team` sur certaines routes | Corriger quand Signal Hub activé |
+**Piège** : `resolve_entity("Incom")` matche **Fincome** (substring) — toujours confirmer si ambigu.
 
 ---
 
@@ -134,27 +163,31 @@ Les routes HTTP `/signals/*` restent montées (admin / webhooks) même quand le 
 
 | Priorité | Sujet |
 |----------|--------|
-| Haute | Multi-token Drive dans `prepare_board_brief` + `resolve_company_drive_folder` |
+| **P0 BP** | Redeploy prod avec `read_bp_playbook` + playbook dist |
+| **P0 BP** | Script `extract-bp-template-spec.mjs` → markdown + Zod (pas xlsx git) |
+| **P0 BP** | PR foundation : `assemble_company_finance_pack` + `draft_bp_tab_debt` |
+| **P0 BP** | Benchmark chiffré eSwit (transform) |
+| Haute | HubSpot sync engine prod : webhook + backfill |
 | Haute | Alias store persistant (`entity_aliases`) |
-| Moyenne | Activer Signal Hub prod (`SIGNAL_HUB_ENABLED`, Serper, watchlist) |
-| Moyenne | Filtrer Signal Hub dans `/ai/query` si flag off |
-| Basse | Déprécier wrappers CRM (`read_startup_*`, `list_company_crm_activity`) |
-| Basse | `whats_new_for_me`, `prepare_m1_meeting_brief` |
+| Moyenne | Activer Signal Hub prod |
+| Basse | `prepare_m1_meeting_brief`, wrappers CRM deprecated |
 
 ---
 
 ## Fichiers clés
 
 ```
-src/agent/toolCatalog.ts          ← gate Signal Hub MCP
-src/services/entityResolution.ts  ← scoring + driveTokens
-src/services/driveTokenLookup.ts  ← lookup Drive séquentiel
-src/services/companyContext.ts    ← resolve_entity enrichi
-src/services/findLatestDeck.ts
-src/auth/mcpOauth/                ← OAuth broker
-src/mcp/instructions.ts           ← buildMcpServerInstructions(flag)
-scripts/mcpServer.ts              ← stdio + signalHubEnabled
-src/server.ts                     ← HTTP bootstrap
+src/playbooks/bp/playbook.md       ← spec méthode BP
+src/services/bpPlaybook.ts
+src/mcp/instructions.ts            ← buildMcpServerInstructions + section BP
+src/agent/toolCopy.ts              ← descriptions éducatives
+src/agent/toolRegistry.ts
+src/services/driveTokenLookup.ts
+src/services/companyDriveFolder.ts
+src/services/companyContext.ts
+scripts/scaleway/deploy-container.sh
+scripts/classify-bp-workflows.mjs
+scripts/download-bp-study.mjs
 ```
 
 ---
@@ -165,17 +198,19 @@ src/server.ts                     ← HTTP bootstrap
 npm test && npm run typecheck
 ```
 
-1. Tester Wenabi : `resolve_entity` → vérifier `driveTokens` → `find_latest_deck` avec tokens
-2. Quand Signal Hub prêt : flag + secrets Scaleway, peupler watchlist
-3. Phase alias store ou extension multi-token board brief
+1. **BP suite** : `extract-bp-template-spec.mjs` → `src/playbooks/bp/template-schema.ts`
+2. **`assemble_company_finance_pack`** : classify Drive, `recommendedMode`
+3. **`draft_bp_tab_debt`** : slice eSwit Debt → Financement
+4. Redeploy Scaleway après merge playbook tool
 
 ---
 
 ## Décisions d'architecture (ne pas casser)
 
-- **Un registry, surfaces filtrées** — MCP via `toolCatalog`, pas de duplication handlers
-- **Domain entities = contrat**
+- **Un registry, surfaces filtrées** — MCP via `toolCatalog`
+- **Domain entities = contrat** (`src/domain/entities.ts`)
 - **Mini-livrables > wrappers**
-- **Dégradation gracieuse** — warning, pas 404
-- **Feature flags** — Signal Hub off par défaut jusqu'à go-live
-- **CoreStore-first** — Postgres puis API live en fallback
+- **Claude s'éduque via tools** — playbook + descriptions, pas de mémoire implicite
+- **Template BP** : forme versionnée dans repo, xlsx référence sur Drive
+- **V1 export BP** : xlsx values only ; formulas V2
+- **Feature flags** — Signal Hub off par défaut

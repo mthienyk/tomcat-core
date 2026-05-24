@@ -124,4 +124,13 @@ export const registerAdminRoutes = (
       return store.listFreshness();
     },
   );
+
+  app.get(
+    "/internal/sync/queue/hubspot.activity",
+    { preHandler: auth.requirePermission("internal.read") },
+    async (req) => {
+      if (!req.identity) throw AuthRequired();
+      return store.getSyncQueueStats("hubspot.activity");
+    },
+  );
 };

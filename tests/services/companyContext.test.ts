@@ -346,7 +346,51 @@ describe("companyContext.listCompanyDocuments", () => {
     const { service } = buildBundle({ driveFiles: [] });
     const result = await service.listCompanyDocuments(internalCaller, "Atlas");
     expect(result.documents).toEqual([]);
-    expect(result.warnings.some((w) => /No Drive files/i.test(w))).toBe(true);
+    expect(result.driveTokenUsed).toBe("Atlas");
+    expect(result.warnings.some((w) => /No Drive files matched/i.test(w))).toBe(
+      true,
+    );
+  });
+
+  it("falls back to alternate driveTokens when the primary token is empty", async () => {
+    const { service, connectors } = buildBundle({
+      driveFiles: [
+        {
+          id: "f1",
+          driveFileId: "f1",
+          title: "KOMEET BP",
+          createdAt: "2026-01-01",
+        },
+      ],
+    });
+    vi.mocked(connectors.drive.listBoardPacksForCompany).mockImplementation(
+      async (token: string) =>
+        token === "KOMEET (ex WENABI)"
+          ? [
+              {
+                id: "f1",
+                driveFileId: "f1",
+                title: "KOMEET BP",
+                createdAt: "2026-01-01",
+              },
+            ]
+          : [],
+    );
+
+    const result = await service.listCompanyDocuments(internalCaller, "Wenabi", {
+      driveTokens: [
+        {
+          token: "KOMEET (ex WENABI)",
+          source: "monday_portfolio",
+          confidence: 0.95,
+          matchReason: "monday_portfolio_id",
+        },
+      ],
+    });
+
+    expect(result.driveTokenUsed).toBe("KOMEET (ex WENABI)");
+    expect(result.documents).toHaveLength(1);
+    expect(result.warnings.some((w) => /alternate token/i.test(w))).toBe(true);
   });
 
   it("omits binary files by default and exposes relevance metadata", async () => {

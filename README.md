@@ -17,6 +17,7 @@ is its data and permissions nexus: Postgres read model, sync, API, redaction.
 | [docs/capabilities.md](./docs/capabilities.md) | Capability catalogue and tier matrix (quick reference) |
 | [docs/mcp-use-cases.md](./docs/mcp-use-cases.md) | MCP use cases, protocol alignment, implementation guide |
 | [docs/mcp-work-status.md](./docs/mcp-work-status.md) | MCP handoff: done, in progress, next steps |
+| [docs/hubspot-sync-engine.md](./docs/hubspot-sync-engine.md) | HubSpot read model: queue, webhooks, rate limits, edge cases |
 
 Society owns member login (magic link priority, Google for `@tomcat.eu` team).
 Core recalculates access on every request; UI never decides visibility.
@@ -90,12 +91,13 @@ scale.
 | `pg_002_core.sql` | Startups, portfolio companies, deals, notes, meetings, board packs, signals, events, sync runs, dataset freshness |
 | `pg_003_identity.sql` | Internal users and investor records |
 
-**Sync workers** (`src/sync/`) synchronise each dataset independently on a 15-minute cycle (10 s startup delay). Workers are idempotent — they can be re-run without side effects. Available datasets:
+**Sync workers** (`src/sync/`) keep HubSpot, Monday and Drive datasets fresh. HubSpot activity uses a **durable queue** (webhook + reconcile + backfill), not a full CRM rescan every 15 minutes. See [docs/hubspot-sync-engine.md](./docs/hubspot-sync-engine.md).
 
 | Worker | Dataset | Source |
 | --- | --- | --- |
 | `hubspotStartupsWorker` | `hubspot.startups` | HubSpot companies |
-| `hubspotActivityWorker` | `hubspot.deals`, `hubspot.notes`, `hubspot.meetings` | HubSpot deals, engagements |
+| `hubspotActivityQueueWorker` | `hubspot.activity` (queue) | HubSpot deals, notes, meetings per company |
+| `hubspotActivityReconcileWorker` | `hubspot.activity.reconcile` | HubSpot companies modified since cursor |
 | `mondayPortfolioWorker` | `monday.portfolio` | Monday.com portfolio board |
 | `mondaySignalsWorker` | `monday.signals` | Monday.com signal board |
 | `mondayEventsWorker` | `monday.events` | Monday.com events board |
@@ -199,13 +201,19 @@ Each tool advertises its sources, access level and approval requirement in the
 description. Approval-required tools refuse to execute over MCP and emit an
 audit event.
 
-**Tool count:** 18 tools when `SIGNAL_HUB_ENABLED=false` (default), 27 when enabled.
+**Tool count:** 19 tools when `SIGNAL_HUB_ENABLED=false` (default), 28 when enabled.
 Signal Hub tools are hidden from MCP `tools/list` and orchestrator instructions until the flag is on.
 See [docs/mcp-work-status.md](./docs/mcp-work-status.md).
 
+**Business Plan workflows:** call `read_bp_playbook` first (methodology: transform / generate / hybrid modes,
+canonical template tabs, DSN V1 scope, benchmark thresholds). Then `resolve_entity` →
+`resolve_company_drive_folder` (`purpose: bp_inputs`) → `list_company_documents` →
+`read_company_document_excerpt`. Playbook source: `src/playbooks/bp/playbook.md`.
+
 **Entity resolution:** `resolve_entity` returns ranked candidates with `confidence` and
 `driveTokens[]` (Monday portfolio id, HubSpot name, parenthetical aliases like `(ex WENABI)`).
-Pass `driveTokens` to `find_latest_deck` for cross-system Drive folder names.
+Pass `driveTokens` to `find_latest_deck`, `list_company_documents`, and
+`resolve_company_drive_folder` for cross-system Drive folder names.
 
 Example Cursor config (remote):
 

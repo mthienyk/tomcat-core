@@ -171,12 +171,17 @@ Registre canonique : `src/agent/toolRegistry.ts`, enum `CoreToolNameSchema` dans
 | `prepare_board_brief` | P0 | HubSpot, Monday, Drive, Signal Hub | Cas 1 |
 | `generate_portfolio_signal_digest` | P0 | Signal Hub, HubSpot | Cas 3 |
 | `resolve_company_drive_folder` | P0 | Drive | Cas 2 (prérequis) |
+| `read_bp_playbook` | P0 | playbook | UC-GUI-01 — méthode BP (modes, mapping, benchmark) |
 | `find_competitive_history` | P0 | HubSpot, Drive | — |
 | `prepare_m1_meeting_brief` | P0 | HubSpot, Drive, web | — |
 | `run_m2_financial_analysis` | P0 | Drive, HubSpot | ROI prouvé Kevin |
 | `score_startup_list_against_thesis` | P0 | Dealfy, HubSpot | — |
 | `synthesize_m1_from_transcript` | P1 | HubSpot, Drive | — |
-| `generate_bp_from_template` | P1 | Drive | Cas 2 |
+| `assemble_company_finance_pack` | P1 | Drive | UC-GUI-01 — classify inputs, recommendedMode |
+| `restructure_founder_bp` | P1 | Drive | UC-GUI-01 — transform (~70 % cas) |
+| `draft_business_plan` | P1 | Drive | UC-GUI-01 — generate from inputs |
+| `draft_bp_tab_debt` | P1 | Drive | UC-GUI-01 — premier slice end-to-end |
+| `export_business_plan` | P1 | Drive | UC-GUI-01 — xlsx values, approval required |
 | `debrief_board_session` | P1 | Monday, Drive | — |
 | `capture_factory_session` | P1 | Monday | — |
 | `bulk_upsert_hubspot_deals` | P1 | HubSpot, Dealfy | — |
@@ -595,9 +600,10 @@ Format de chaque cas :
 | Champ | Valeur |
 | --- | --- |
 | **Exemples** | « Génère le BP de [Boîte] » ; « Remplis le template BP avec ce qu'on a dans Drive » |
-| **Intent** | BP ~90 % auto depuis template 5 onglets |
-| **Chaîne MCP** | 1. `resolve_company_drive_folder` **P0** → 2. `generate_bp_from_template` **P1** |
-| **Rôle Claude** | Signale onglets à revue humaine (recrutements futurs, modèle revenu from scratch) |
+| **Intent** | BP ~90 % auto vers template Tomcat 12 onglets (`MAJ Template BP SaaS`) |
+| **Chaîne MCP** | 1. `read_bp_playbook` **P0** → 2. `resolve_entity` → 3. `resolve_company_drive_folder` (`bp_inputs`) → 4. `list_company_documents` / `read_company_document_excerpt` → 5. mode auto : `restructure_founder_bp` (transform) ou `draft_business_plan` (generate) ou hybrid → 6. `export_business_plan` (approval) |
+| **Modes** | **transform** (~70 %, BP founder custom) · **generate** (~15 %, inputs seuls) · **hybrid** (~15 %, BP + DSN/prêts) |
+| **Rôle Claude** | Lire le playbook ; ne pas supposer qu'un fichier « BP Tomcat » utilise le template canonique ; signale onglets à revue humaine |
 | **Gate humain** | Guillaume valide chaque BP |
 | **Source audit** | Cas pilote v2 (`audit_log.md` §5) |
 
@@ -831,7 +837,7 @@ Format de chaque cas :
 | Notes / deals / meetings | `list_company_crm_activity` | LIVRE |
 | Signaux LinkedIn | `signal_hub_*` | LIVRE |
 | Post-M1 / post-board → CRM | `synthesize_m1_from_transcript` / `debrief_board_session` | P1 |
-| BP from template | `generate_bp_from_template` | P1 |
+| BP workflows | `read_bp_playbook` + `restructure_founder_bp` / `draft_business_plan` | P1 |
 | Investisseurs pour un deal | `match_investors_to_deal` | P1 |
 | Performance comm / events | `analyze_communication_performance` | P2 |
 
@@ -952,7 +958,7 @@ Objectif : MCP stateless prod, face investisseur Jérémy.
 
 Objectif : drafts CRM/Monday, BP, parcours investisseur.
 
-Priorité : `synthesize_m1_from_transcript`, `generate_bp_from_template`, `debrief_board_session`,
+Priorité : `synthesize_m1_from_transcript`, `draft_bp_tab_debt` + `restructure_founder_bp`, `debrief_board_session`,
 `bulk_upsert_hubspot_deals`, `match_investors_to_deal`, `build_investor_dealflow_digest`.
 
 Mutations via pattern **elicitation** (spec 2026-07-28) : le serveur demande confirmation

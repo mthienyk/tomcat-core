@@ -49,7 +49,9 @@ export const TOOL_DESCRIPTIONS = {
     ],
     nextTools: [
       { name: "summarize_company_activity", when: "Single candidate confirmed — default CRM read" },
-      { name: "find_latest_deck", when: "User asks for deck, pitch, or BP" },
+      { name: "find_latest_deck", when: "User asks for deck or pitch (not financial BP model)" },
+      { name: "read_bp_playbook", when: "User asks to generate, restructure, or review a Business Plan" },
+      { name: "resolve_company_drive_folder", when: "Locate BP inputs folder (purpose: bp_inputs)" },
       { name: "find_competitive_history", when: "Compare against prior deals in the same sector" },
       { name: "list_company_documents", when: "Browse all Drive docs, not just deck" },
       { name: "prepare_board_brief", when: "Explicit board or comité prep only" },
@@ -104,29 +106,34 @@ export const TOOL_DESCRIPTIONS = {
       "Locate the Google Drive folder for a portfolio company, return breadcrumb path, "
       + "folder inventory, and missing inputs for M2/BP/reporting workflows.",
     whenToUse: [
-      "Before run_m2_financial_analysis or generate_bp_from_template",
+      "Before assemble_company_finance_pack, restructure_founder_bp, or draft_business_plan (when available)",
       "« Where is the Série A folder for [Boîte]? »",
       "Check which BP or M2 inputs are missing in Drive",
+      "Start of any BP workflow — after read_bp_playbook and resolve_entity",
     ],
     prerequisites: [
       "portfolioCompanyId from resolve_entity, or startupId/startupName with Monday linkage",
     ],
     inputTips: [
       "purpose — company_root (default), series_a, pre_round, m2_financial, bp_inputs, reporting",
+      "driveTokens — pass from resolve_entity when folder search misses on portfolioCompanyId alone",
       "folderLimit — max folder candidates (default 10)",
       "inventoryLimit — max items listed inside the primary folder (default 50)",
     ],
     output: [
       "ToolRunEnvelope: primaryFolder with path, folderCandidates[], inventory[]",
       "presentInputs / missingInputs when purpose is not company_root",
+      "For bp_inputs: keyword hints for BP file, DSN, loan, history (filename-based)",
       "warnings when folder missing, ambiguous, or inputs incomplete",
     ],
     nextTools: [
+      { name: "read_bp_playbook", when: "First BP on this company — confirm transform vs generate mode" },
+      { name: "list_company_documents", when: "Flat search when folder inventory is incomplete" },
       { name: "read_company_document_excerpt", when: "Extract text from a listed file" },
-      { name: "list_company_documents", when: "Fallback flat search when folder structure fails" },
     ],
     limitations: [
-      "Folder discovery uses portfolioCompanyId substring match on Drive folder names",
+      "Requires GOOGLE_DRIVE_SHARED_DRIVE_ID on the server (Tomcat Drive shared drive)",
+      "Folder discovery tries driveTokens[] then portfolioCompanyId substring match",
       "Input gap checks are keyword-based on filenames, not semantic classification",
     ],
     sources: ["drive", "monday"],
@@ -254,8 +261,8 @@ export const TOOL_DESCRIPTIONS = {
       + "with ranked alternates and an optional text excerpt when extractable.",
     whenToUse: [
       "« Quel est le dernier deck de [Boîte] ? »",
-      "« Montre-moi le pitch / BP »",
-      "After resolve_entity when the user wants presentation materials, not a full doc list",
+      "« Montre-moi le pitch »",
+      "Presentation materials — **not** the primary tool for financial BP Excel models",
     ],
     inputTips: [
       "Prefer startupId from resolve_entity; portfolioCompanyId is the Drive folder token",
@@ -269,9 +276,10 @@ export const TOOL_DESCRIPTIONS = {
     ],
     nextTools: [
       { name: "read_company_document_excerpt", when: "Need a longer excerpt from the cited file" },
+      { name: "read_bp_playbook", when: "User actually needs the financial BP model, not the pitch deck" },
+      { name: "list_company_documents", when: "Search financial BP with titleContains: BP" },
       { name: "summarize_company_activity", when: "Cross-check CRM context against the deck" },
       { name: "resolve_company_drive_folder", when: "Deck search missed — browse the folder" },
-      { name: "list_company_documents", when: "User wants all docs, not just decks" },
     ],
     limitations: [
       "Ranking prefers pitch/deck over financial BP when both exist",
@@ -386,19 +394,31 @@ export const TOOL_DESCRIPTIONS = {
   }),
 
   list_company_documents: meta({
-    summary: "List Google Drive files whose names contain the portfolio company token.",
+    summary:
+      "List Google Drive files whose names contain the portfolio company token. "
+      + "Primary discovery for founder BPs, DSN exports, and loan schedules.",
     whenToUse: [
-      "Find board packs, BP folders, or reporting docs",
-      "Before read_company_document_excerpt",
+      "Find financial BP models (titleContains: « BP » or « Business Plan »)",
+      "After resolve_company_drive_folder when inventory is incomplete",
+      "Before read_company_document_excerpt on a specific file",
     ],
     inputTips: [
       "portfolioCompanyId — same token as Monday/Drive naming convention",
-      "titleContains — optional filename filter (e.g. « board »)",
+      "driveTokens — pass from resolve_entity when HubSpot and Monday names diverge (e.g. KOMEET ex WENABI)",
+      "titleContains — « BP » for financial models; avoid confusing with pitch decks",
     ],
-    output: ["documents[] with driveFileId, title, citation metadata"],
+    output: [
+      "documents[] with driveFileId, title, citation metadata",
+      "driveTokenUsed when multi-token lookup succeeds on an alternate name",
+    ],
     nextTools: [
-      { name: "resolve_company_drive_folder", when: "Locate the company folder before listing files" },
-      { name: "read_company_document_excerpt", when: "Extract text from a listed file" },
+      { name: "read_bp_playbook", when: "Determine transform vs generate from file list" },
+      { name: "read_company_document_excerpt", when: "Read a listed spreadsheet or Google Sheet export" },
+      { name: "resolve_company_drive_folder", when: "Folder path unknown — locate bp_inputs first" },
+    ],
+    limitations: [
+      "Filename search only — does not classify spreadsheet tabs or workflow mode",
+      "Logos and marketing assets may appear if they contain the company token",
     ],
     sources: ["drive"],
     access: "confidential",
@@ -408,12 +428,23 @@ export const TOOL_DESCRIPTIONS = {
   read_company_document_excerpt: meta({
     summary:
       "Extract plain text from a Google Doc, Slide, or Sheet listed by list_company_documents.",
-    whenToUse: ["Read deck or board pack content for synthesis"],
+    whenToUse: [
+      "Read founder BP spreadsheet exports for restructuring (transform mode)",
+      "Read loan schedule or payroll table content before draft_bp_tab_* (when available)",
+      "Board deck or memo synthesis",
+    ],
     inputTips: [
       "driveFileId must come from list_company_documents for the same portfolioCompanyId",
       "maxChars default 8000; use charOffset for pagination",
+      "For large Excel BPs: excerpt key tabs (Debt, Revenue, Payroll) in separate calls",
     ],
-    limitations: ["PDF/binary scans are not text-extractable — warning returned"],
+    nextTools: [
+      { name: "read_bp_playbook", when: "Map excerpted tabs to canonical template structure" },
+    ],
+    limitations: [
+      "PDF/binary scans are not text-extractable — warning returned",
+      "Does not parse DSN XML; structured payroll must be Excel/Sheet or pasted grid (V1)",
+    ],
     sources: ["drive"],
     access: "confidential",
     approvalRequired: false,
@@ -426,6 +457,111 @@ export const TOOL_DESCRIPTIONS = {
     output: ["portfolioRow, signals[], upcomingEvents[], warnings[]"],
     limitations: ["Signals/events may be empty until Monday boards are wired"],
     sources: ["monday"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  read_bp_playbook: meta({
+    summary:
+      "Tomcat BP methodology: canonical template structure, three workflow modes "
+      + "(transform / generate / hybrid), tab mapping, DSN V1 scope, tool chain, and benchmark thresholds. "
+      + "**Call this first** before any Business Plan task.",
+    whenToUse: [
+      "User asks to generate, restructure, review, or export a Business Plan",
+      "Before inferring transform vs generate vs hybrid from Drive files",
+      "When unsure whether a « BP Tomcat » file uses the canonical template (usually it does not)",
+      "Before calling planned tools: assemble_company_finance_pack, restructure_founder_bp, draft_business_plan",
+    ],
+    inputTips: [
+      "section — optional excerpt: modes | tools | mapping | payroll | debt | benchmark | mistakes",
+    ],
+    output: [
+      "playbook — full markdown spec or section excerpt",
+      "sections — index of topics covered",
+      "version — playbook revision date",
+    ],
+    nextTools: [
+      { name: "resolve_entity", when: "Company identified — get portfolioCompanyId and driveTokens" },
+      { name: "assemble_company_finance_pack", when: "Classify Drive inputs and get recommendedMode" },
+      { name: "resolve_company_drive_folder", when: "purpose: bp_inputs — folder and missing inputs" },
+      { name: "list_company_documents", when: "Find founder BP xlsx and payroll/debt files" },
+    ],
+    limitations: [
+      "Static methodology — does not read Drive or produce a BP draft",
+      "Call assemble_company_finance_pack and draft_bp_tab_debt for Drive classification and Financement drafts",
+    ],
+    sources: ["playbook"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  assemble_company_finance_pack: meta({
+    summary:
+      "Classify Drive finance inputs for a portco and return recommendedMode "
+      + "(transform / generate / hybrid) plus founder BP candidate with optional sheet peek.",
+    whenToUse: [
+      "After read_bp_playbook and resolve_entity — start of any BP workflow for Guillaume",
+      "Determine transform vs generate vs hybrid from Drive inventory",
+      "Before draft_bp_tab_debt or restructure_founder_bp (when available)",
+    ],
+    prerequisites: [
+      "portfolioCompanyId from resolve_entity",
+      "read_bp_playbook called first on first BP task for this company",
+    ],
+    inputTips: [
+      "driveTokens — pass from resolve_entity when HubSpot and Monday names diverge",
+      "titleContains — narrow to « BP » or « Business Plan » for financial models",
+      "peekFounderBpSheets — default true; reads sheet names from top founder xlsx for canonical detection",
+    ],
+    output: [
+      "ToolRunEnvelope: recommendedMode, modeRationale, founderBpFile, classifiedFiles[], inputSummary",
+      "warnings when inputs missing or canonical tabs already present",
+      "nextSuggestedTools → draft_bp_tab_debt when transform/hybrid",
+    ],
+    nextTools: [
+      { name: "draft_bp_tab_debt", when: "recommendedMode is transform or hybrid and founderBpFile is set" },
+      { name: "read_company_document_excerpt", when: "Need to inspect payroll/debt file content" },
+      { name: "resolve_company_drive_folder", when: "Folder path or missing inputs unclear" },
+    ],
+    limitations: [
+      "Filename classification only except one optional xlsx sheet-name peek",
+      "Does not produce an exportable BP — drafts require draft_* tools",
+    ],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  draft_bp_tab_debt: meta({
+    summary:
+      "Confidential draft: parse founder BP Debt/Loan tab and map instruments to canonical Financement schema. "
+      + "First end-to-end BP slice (benchmark: eSwit). Not exported to Drive.",
+    whenToUse: [
+      "After assemble_company_finance_pack identified a founder BP (transform/hybrid)",
+      "Map eSwit-style Debt tab → Financement instruments 1:1",
+      "Guillaume review before export_business_plan (when available)",
+    ],
+    prerequisites: [
+      "founderBpFileId from assemble_company_finance_pack or list_company_documents",
+      "portfolioCompanyId in scope",
+    ],
+    inputTips: [
+      "sourceTab — default auto-detect (Debt, Loan, Financement); set explicitly if ambiguous",
+      "Review mappingNotes and warnings — principal may be missing in founder models",
+    ],
+    output: [
+      "ToolRunEnvelope: founderInstruments[], financementDraft (Zod-validated), mappingNotes[], status: confidential_draft",
+      "citations with driveFileId of source spreadsheet",
+    ],
+    nextTools: [
+      { name: "read_bp_playbook", when: "Validate Financement 1:1 benchmark thresholds (section: benchmark)" },
+    ],
+    limitations: [
+      "Confidential draft only — never share externally or upload to Drive without approval",
+      "V1 maps instrument rows, not monthly amortization schedules line-by-line",
+      "export_business_plan not yet available — no xlsx output from this tool",
+    ],
+    sources: ["drive"],
     access: "confidential",
     approvalRequired: false,
   }),

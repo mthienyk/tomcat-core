@@ -98,9 +98,24 @@ export const createUnconfiguredHubspotConnector = (): HubspotConnector => ({
     Promise.reject(ConnectorNotConfigured("hubspot", "listMeetingsForStartup")),
   listNotesForStartup: () =>
     Promise.reject(ConnectorNotConfigured("hubspot", "listNotesForStartup")),
+  listCompaniesModifiedSince: () =>
+    Promise.reject(
+      ConnectorNotConfigured("hubspot", "listCompaniesModifiedSince"),
+    ),
 });
 
-export const createHttpHubspotConnector = (token: string): HubspotConnector => {
+export type HubspotConnectorOptions = {
+  rateLimiter?: { acquire(): Promise<void> };
+};
+
+export const createHttpHubspotConnector = (
+  token: string,
+  options: HubspotConnectorOptions = {},
+): HubspotConnector => {
+  const throttle = async (): Promise<void> => {
+    if (options.rateLimiter) await options.rateLimiter.acquire();
+  };
+
   const client = createHttpClient({
     connector: "hubspot",
     baseUrl: HUBSPOT_BASE,
@@ -112,13 +127,19 @@ export const createHttpHubspotConnector = (token: string): HubspotConnector => {
     maxAttempts: 3,
   });
 
-  const get = (path: string, params: Record<string, string> = {}): Promise<unknown> => {
+  const get = async (
+    path: string,
+    params: Record<string, string> = {},
+  ): Promise<unknown> => {
+    await throttle();
     const qs = new URLSearchParams(params).toString();
     return client.json(qs ? `${path}?${qs}` : path);
   };
 
-  const post = (path: string, body: unknown): Promise<unknown> =>
-    client.json(path, { method: "POST", body });
+  const post = async (path: string, body: unknown): Promise<unknown> => {
+    await throttle();
+    return client.json(path, { method: "POST", body });
+  };
 
   const paginateSearch = async <T>(path: string, body: Record<string, unknown>): Promise<T[]> => {
     const results: T[] = [];
@@ -342,6 +363,49 @@ export const createHttpHubspotConnector = (token: string): HubspotConnector => {
       } catch (err) {
         if (err instanceof CoreError) throw err;
         throw ConnectorFailed("hubspot.listMeetingsForStartup failed", { cause: String(err) });
+      }
+    },
+
+    async listCompaniesModifiedSince(sinceMs) {
+      try {
+        type HsCompany = {
+          id: string;
+          properties: Record<string, string | null>;
+          updatedAt: string;
+        };
+
+        const companies = await paginateSearch<HsCompany>(
+          "/crm/v3/objects/companies/search",
+          {
+            filterGroups: [
+              {
+                filters: [
+                  {
+                    propertyName: "hs_lastmodifieddate",
+                    operator: "GTE",
+                    value: String(sinceMs),
+                  },
+                ],
+              },
+            ],
+            properties: ["name", "hs_lastmodifieddate"],
+            sorts: [{ propertyName: "hs_lastmodifieddate", direction: "ASCENDING" }],
+            limit: 100,
+          },
+        );
+
+        return companies.map((c) => ({
+          id: c.id,
+          modifiedAt:
+            c.properties.hs_lastmodifieddate
+            ?? c.updatedAt
+            ?? new Date(sinceMs).toISOString(),
+        }));
+      } catch (err) {
+        if (err instanceof CoreError) throw err;
+        throw ConnectorFailed("hubspot.listCompaniesModifiedSince failed", {
+          cause: String(err),
+        });
       }
     },
   };

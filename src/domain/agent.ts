@@ -32,6 +32,9 @@ export const CoreToolNameSchema = z.enum([
   "prepare_board_brief",
   "generate_portfolio_signal_digest",
   "resolve_company_drive_folder",
+  "read_bp_playbook",
+  "assemble_company_finance_pack",
+  "draft_bp_tab_debt",
   // Signal Hub
   "signal_hub_list_watched",
   "signal_hub_add_watched",

@@ -10,6 +10,12 @@ import type {
   Event,
 } from "../domain/entities.js";
 import type { Role } from "../domain/identity.js";
+import type {
+  EnqueueSyncJobInput,
+  HubspotCompanySyncState,
+  SyncQueueJob,
+  SyncQueueStats,
+} from "../domain/syncQueue.js";
 
 export type SyncStatus = "running" | "success" | "failed";
 
@@ -96,6 +102,37 @@ export interface CoreStore {
   // Freshness
   getFreshness(dataset: string): Promise<DatasetFreshness>;
   listFreshness(): Promise<DatasetFreshness[]>;
+  refreshDatasetFreshness(dataset: string): Promise<void>;
+
+  // Sync queue (HubSpot activity and future datasets)
+  enqueueSyncJob(input: EnqueueSyncJobInput): Promise<"created" | "deduped">;
+  claimSyncJobs(
+    dataset: string,
+    limit: number,
+    workerId: string,
+  ): Promise<SyncQueueJob[]>;
+  completeSyncJob(id: string): Promise<void>;
+  failSyncJob(
+    id: string,
+    errorMessage: string,
+    retryDelayMs: number,
+  ): Promise<void>;
+  getSyncQueueStats(dataset: string): Promise<SyncQueueStats>;
+  releaseStaleSyncJobs(staleAfterMs: number): Promise<number>;
+
+  // HubSpot incremental sync state
+  upsertHubspotCompanySyncState(state: HubspotCompanySyncState): Promise<void>;
+  getHubspotCompanySyncState(
+    companyId: string,
+  ): Promise<HubspotCompanySyncState | undefined>;
+  listHubspotCompanySyncStatesMissingActivity(): Promise<string[]>;
+
+  getSyncCursor(dataset: string, cursorKey?: string): Promise<string | undefined>;
+  setSyncCursor(
+    dataset: string,
+    cursorValue: string,
+    cursorKey?: string,
+  ): Promise<void>;
 
   // Users (internal Tomcat employees, for DB role resolver)
   upsertUser(user: UserRecord): Promise<void>;

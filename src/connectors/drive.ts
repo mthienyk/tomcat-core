@@ -16,6 +16,8 @@ const TEXT_EXPORT_MIMES: Partial<Record<string, string>> = {
   [GOOGLE_SHEET_MIME]: "text/csv",
 };
 
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 type DriveFile = {
@@ -45,6 +47,8 @@ export const createUnconfiguredDriveConnector = (): DriveConnector => ({
     Promise.reject(ConnectorNotConfigured("drive", "resolveItemPath")),
   fetchDocumentText: () =>
     Promise.reject(ConnectorNotConfigured("drive", "fetchDocumentText")),
+  fetchDocumentBinary: () =>
+    Promise.reject(ConnectorNotConfigured("drive", "fetchDocumentBinary")),
 });
 
 export const createHttpDriveConnector = (
@@ -227,6 +231,42 @@ export const createHttpDriveConnector = (
       } catch (err) {
         if (err instanceof CoreError) throw err;
         throw ConnectorFailed("drive.fetchDocumentText failed", {
+          cause: String(err),
+        });
+      }
+    },
+
+    async fetchDocumentBinary(driveFileId) {
+      try {
+        const client = await buildClient();
+        const meta = await client.json<{ id: string; name: string; mimeType: string }>(
+          `/files/${driveFileId}?fields=id,name,mimeType&supportsAllDrives=true`,
+        );
+
+        if (meta.mimeType === GOOGLE_SHEET_MIME) {
+          const exportRes = await client.request(
+            `/files/${driveFileId}/export?mimeType=${encodeURIComponent(XLSX_MIME)}&supportsAllDrives=true`,
+          );
+          const arrayBuffer = await exportRes.arrayBuffer();
+          return {
+            name: meta.name,
+            mimeType: XLSX_MIME,
+            buffer: Buffer.from(arrayBuffer),
+          };
+        }
+
+        const mediaRes = await client.request(
+          `/files/${driveFileId}?alt=media&supportsAllDrives=true`,
+        );
+        const arrayBuffer = await mediaRes.arrayBuffer();
+        return {
+          name: meta.name,
+          mimeType: meta.mimeType,
+          buffer: Buffer.from(arrayBuffer),
+        };
+      } catch (err) {
+        if (err instanceof CoreError) throw err;
+        throw ConnectorFailed("drive.fetchDocumentBinary failed", {
           cause: String(err),
         });
       }

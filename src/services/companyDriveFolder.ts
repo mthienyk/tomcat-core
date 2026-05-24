@@ -11,6 +11,11 @@ import {
 } from "../domain/mcpToolOutput.js";
 import type { SocietyService } from "./society.js";
 import type { StartupsService } from "./startups.js";
+import { listDriveFoldersForTokens } from "./driveTokenLookup.js";
+import {
+  rankDriveTokens,
+  type DriveTokenCandidate,
+} from "./entityResolution.js";
 
 export type DriveFolderPurpose =
   | "company_root"
@@ -40,6 +45,8 @@ export type ResolveCompanyDriveFolderData = {
   portfolioCompanyId: string;
   canonicalName: string | undefined;
   purpose: DriveFolderPurpose;
+  driveTokenUsed: string;
+  driveTokensTried: string[];
   primaryFolder: DriveFolderCandidate | null;
   folderCandidates: DriveFolderCandidate[];
   inventory: DriveInventoryItem[];
@@ -200,6 +207,7 @@ export const buildCompanyDriveFolderService = (deps: {
         portfolioCompanyId?: string;
         startupId?: string;
         startupName?: string;
+        driveTokens?: DriveTokenCandidate[];
         purpose?: DriveFolderPurpose;
         folderLimit?: number;
         inventoryLimit?: number;
@@ -214,9 +222,30 @@ export const buildCompanyDriveFolderService = (deps: {
         await resolvePortfolioCompanyId(caller, args);
       await society.ensurePortfolioCompanyInScope(caller, portfolioCompanyId);
 
-      const rawFolders = await connectors.drive.listCompanyFolders(
+      const driveTokensTried = rankDriveTokens(
         portfolioCompanyId,
+        args.driveTokens ?? [],
       );
+      const folderLookup = await listDriveFoldersForTokens(
+        connectors.drive,
+        driveTokensTried,
+      );
+      const driveTokenUsed = folderLookup?.token ?? driveTokensTried[0] ?? portfolioCompanyId;
+      const rawFolders = folderLookup?.folders ?? [];
+
+      if (
+        folderLookup &&
+        folderLookup.token !== driveTokensTried[0] &&
+        driveTokensTried[0]
+      ) {
+        warnings.push({
+          code: ToolWarningCodes.PORTFOLIO_LINK_MISSING,
+          message:
+            `Drive folders found under alternate token "${folderLookup.token}" (primary "${driveTokensTried[0]}" was empty).`,
+          mitigation:
+            "Reuse driveTokens from resolve_entity for downstream Drive reads.",
+        });
+      }
 
       const rankedFolders = [...rawFolders]
         .map((folder) => ({
@@ -305,9 +334,9 @@ export const buildCompanyDriveFolderService = (deps: {
         warnings.push({
           code: ToolWarningCodes.DRIVE_FOLDER_NOT_FOUND,
           message:
-            `No Drive folder matched portfolio token "${portfolioCompanyId}".`,
+            `No Drive folder matched after trying tokens: ${driveTokensTried.join(", ")}.`,
           mitigation:
-            "Verify Monday portfolioCompanyId via resolve_entity or list_company_documents.",
+            "Call resolve_entity and pass driveTokens[], or verify GOOGLE_DRIVE_SHARED_DRIVE_ID is set on the server.",
         });
       } else if (folderCandidates.length > 1 && purpose !== "company_root") {
         const purposeMatches = folderCandidates.filter((candidate) =>
@@ -374,6 +403,8 @@ export const buildCompanyDriveFolderService = (deps: {
         portfolioCompanyId,
         canonicalName,
         purpose,
+        driveTokenUsed,
+        driveTokensTried,
         primaryFolder,
         folderCandidates,
         inventory,

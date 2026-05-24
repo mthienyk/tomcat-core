@@ -226,6 +226,32 @@ const stubServices = (): AgentToolServices => ({
       warnings: [],
     }),
   } as AgentToolServices["findLatestDeck"],
+  bpWorkflow: {
+    assembleCompanyFinancePack: async () => ({
+      data: {
+        portfolioCompanyId: "DemoCo",
+        recommendedMode: "transform",
+        modeRationale: "demo",
+        founderBpFile: null,
+        classifiedFiles: [],
+        inputSummary: { founderBp: 0, payroll: 0, debt: 0, analysis: 0 },
+      },
+      citations: [],
+      warnings: [],
+    }),
+    draftBpTabDebt: async () => ({
+      data: {
+        portfolioCompanyId: "DemoCo",
+        sourceFile: { driveFileId: "f1", title: "demo.xlsx", sourceTab: "Debt" },
+        founderInstruments: [],
+        financementDraft: { tabSlug: "financement", instruments: [{ label: "x", instrumentType: "private_loan", amount: 0 }] },
+        mappingNotes: [],
+        status: "confidential_draft",
+      },
+      citations: [],
+      warnings: [],
+    }),
+  } as AgentToolServices["bpWorkflow"],
 });
 
 type Scenario = {

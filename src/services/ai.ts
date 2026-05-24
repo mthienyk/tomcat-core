@@ -14,6 +14,7 @@ import type { BoardBriefService } from "./boardBrief.js";
 import type { PortfolioSignalDigestService } from "./portfolioSignalDigest.js";
 import type { CompanyActivitySummaryService } from "./companyActivitySummary.js";
 import type { FindLatestDeckService } from "./findLatestDeck.js";
+import type { BpWorkflowService } from "./bpWorkflow.js";
 
 export type AiQueryResult = {
   provider: LlmProviderName;
@@ -38,6 +39,7 @@ export type AiServiceDeps = {
   portfolioSignalDigest: PortfolioSignalDigestService;
   companyActivitySummary: CompanyActivitySummaryService;
   findLatestDeck: FindLatestDeckService;
+  bpWorkflow: BpWorkflowService;
   auditor: Auditor;
 };
 
@@ -73,6 +75,7 @@ export const buildAiService = (deps: AiServiceDeps) => ({
         portfolioSignalDigest: deps.portfolioSignalDigest,
         companyActivitySummary: deps.companyActivitySummary,
         findLatestDeck: deps.findLatestDeck,
+        bpWorkflow: deps.bpWorkflow,
       },
       caller,
       auditor: deps.auditor,

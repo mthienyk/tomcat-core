@@ -51,6 +51,26 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 ${signalHubWorkflowRow}
 | Competitive context | find_competitive_history → read_startup_notes on top matches |
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |
+| Business Plan (BP) | read_bp_playbook → resolve_entity → assemble_company_finance_pack → draft_bp_tab_debt |
+
+## Business Plan (BP) workflows
+
+Call \`read_bp_playbook\` before any BP task. It defines the Tomcat template, three modes
+(transform / generate / hybrid), tab mapping, DSN V1 scope, and benchmark thresholds.
+
+**Modes (infer from Drive, do not guess):**
+
+- **transform** (~70%) — founder custom \`.xlsx\` exists; restructure to Tomcat template
+- **generate** (~15%) — only inputs (DSN export, loans, history); fill template from scratch
+- **hybrid** (~15%) — founder BP + fresh payroll/debt inputs to overlay
+
+**Chain today:** playbook → entity → \`assemble_company_finance_pack\` → \`draft_bp_tab_debt\` (Financement slice).
+Folder browse: \`resolve_company_drive_folder\` (bp_inputs), \`list_company_documents\`, \`read_company_document_excerpt\`.
+**Planned:** \`restructure_founder_bp\`, \`draft_business_plan\`, other \`draft_bp_tab_*\`, \`export_business_plan\`
+(approval required). Do not claim a BP is exported until \`export_business_plan\` succeeds.
+
+**Pitfalls:** « BP Tomcat » in a filename ≠ canonical template; \`find_latest_deck\` prefers pitch
+decks over financial models; M2 analysis workbooks are not operational BPs.
 
 ## Connectors
 

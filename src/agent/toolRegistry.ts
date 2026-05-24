@@ -21,6 +21,8 @@ import type { CompanyActivitySummaryService } from "../services/companyActivityS
 import type { AgentToolAccess } from "../domain/agentTools.js";
 import { formatToolDescription } from "../mcp/toolMeta.js";
 import { TOOL_DESCRIPTIONS } from "./toolCopy.js";
+import type { BpWorkflowService } from "../services/bpWorkflow.js";
+import { readBpPlaybook } from "../services/bpPlaybook.js";
 
 export type AgentToolServices = {
   startups: StartupsService;
@@ -33,6 +35,7 @@ export type AgentToolServices = {
   portfolioSignalDigest: PortfolioSignalDigestService;
   companyActivitySummary: CompanyActivitySummaryService;
   findLatestDeck: FindLatestDeckService;
+  bpWorkflow: BpWorkflowService;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -177,6 +180,22 @@ const FindLatestDeckArgs = z
   })
   .strict();
 
+const DriveTokenCandidatesArg = z
+  .array(
+    z.object({
+      token: z.string().min(1),
+      source: z.enum([
+        "hubspot_name",
+        "monday_portfolio",
+        "name_token",
+        "parenthetical_alias",
+      ]),
+      confidence: z.number(),
+      matchReason: z.string(),
+    }),
+  )
+  .optional();
+
 const SummarizeCompanyActivityArgs = z
   .object({
     startupId: z.string().min(1).optional(),
@@ -206,6 +225,7 @@ const ListCompanyCrmActivityArgs = z
 const ListCompanyDocumentsArgs = z
   .object({
     portfolioCompanyId: z.string().min(1),
+    driveTokens: DriveTokenCandidatesArg,
     titleContains: z.string().min(1).optional(),
     limit: z.number().int().positive().max(100).optional(),
     includeBinaries: z.boolean().optional(),
@@ -267,6 +287,7 @@ const ResolveCompanyDriveFolderArgs = z
     portfolioCompanyId: z.string().min(1).optional(),
     startupId: z.string().min(1).optional(),
     startupName: z.string().min(1).optional(),
+    driveTokens: DriveTokenCandidatesArg,
     purpose: z
       .enum([
         "company_root",
@@ -279,6 +300,24 @@ const ResolveCompanyDriveFolderArgs = z
       .optional(),
     folderLimit: z.number().int().positive().max(25).optional(),
     inventoryLimit: z.number().int().positive().max(100).optional(),
+  })
+  .strict();
+
+const AssembleCompanyFinancePackArgs = z
+  .object({
+    portfolioCompanyId: z.string().min(1).optional(),
+    driveTokens: DriveTokenCandidatesArg,
+    titleContains: z.string().min(1).optional(),
+    documentLimit: z.number().int().positive().max(80).optional(),
+    peekFounderBpSheets: z.boolean().optional(),
+  })
+  .strict();
+
+const DraftBpTabDebtArgs = z
+  .object({
+    portfolioCompanyId: z.string().min(1).optional(),
+    founderBpFileId: z.string().min(1),
+    sourceTab: z.string().min(1).optional(),
   })
   .strict();
 
@@ -603,6 +642,7 @@ export const AGENT_TOOL_REGISTRY = [
         titleContains?: string;
         limit?: number;
         includeBinaries?: boolean;
+        driveTokens?: z.infer<typeof DriveTokenCandidatesArg>;
       } = {};
       if (args.titleContains !== undefined) {
         docOptions.titleContains = args.titleContains;
@@ -612,6 +652,9 @@ export const AGENT_TOOL_REGISTRY = [
       }
       if (args.includeBinaries !== undefined) {
         docOptions.includeBinaries = args.includeBinaries;
+      }
+      if (args.driveTokens !== undefined) {
+        docOptions.driveTokens = args.driveTokens;
       }
       return services.companyContext.listCompanyDocuments(
         caller,
@@ -732,6 +775,83 @@ export const AGENT_TOOL_REGISTRY = [
         ...(args.inventoryLimit !== undefined
           ? { inventoryLimit: args.inventoryLimit }
           : {}),
+        ...(args.driveTokens !== undefined
+          ? { driveTokens: args.driveTokens }
+          : {}),
+      }),
+  }),
+  defineAgentTool({
+    name: "read_bp_playbook",
+    title: "Read BP Playbook",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.read_bp_playbook),
+
+    labels: ["playbook", "finance", "bp", "methodology"],
+    sources: ["playbook"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: z
+      .object({
+        section: z
+          .enum([
+            "goal",
+            "template",
+            "modes",
+            "tools",
+            "mapping",
+            "revenue",
+            "payroll",
+            "debt",
+            "benchmark",
+            "confidentiality",
+            "mistakes",
+          ])
+          .optional(),
+      })
+      .strict(),
+    execute: async ({ args }) => readBpPlaybook(args.section),
+  }),
+  defineAgentTool({
+    name: "assemble_company_finance_pack",
+    title: "Assemble Company Finance Pack",
+    description: formatToolDescription(
+      TOOL_DESCRIPTIONS.assemble_company_finance_pack,
+    ),
+
+    labels: ["drive", "finance", "bp", "classification"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: AssembleCompanyFinancePackArgs,
+    execute: async ({ services, caller, args }) =>
+      services.bpWorkflow.assembleCompanyFinancePack(caller, {
+        ...(args.portfolioCompanyId !== undefined
+          ? { portfolioCompanyId: args.portfolioCompanyId }
+          : {}),
+        ...(args.driveTokens !== undefined ? { driveTokens: args.driveTokens } : {}),
+        ...(args.titleContains !== undefined ? { titleContains: args.titleContains } : {}),
+        ...(args.documentLimit !== undefined ? { documentLimit: args.documentLimit } : {}),
+        ...(args.peekFounderBpSheets !== undefined
+          ? { peekFounderBpSheets: args.peekFounderBpSheets }
+          : {}),
+      }),
+  }),
+  defineAgentTool({
+    name: "draft_bp_tab_debt",
+    title: "Draft BP Financement Tab",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.draft_bp_tab_debt),
+
+    labels: ["drive", "finance", "bp", "draft"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: DraftBpTabDebtArgs,
+    execute: async ({ services, caller, args }) =>
+      services.bpWorkflow.draftBpTabDebt(caller, {
+        ...(args.portfolioCompanyId !== undefined
+          ? { portfolioCompanyId: args.portfolioCompanyId }
+          : {}),
+        founderBpFileId: args.founderBpFileId,
+        ...(args.sourceTab !== undefined ? { sourceTab: args.sourceTab } : {}),
       }),
   }),
   // --- Signal Hub tools ---

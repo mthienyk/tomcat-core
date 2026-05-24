@@ -3,6 +3,7 @@ import type { Db } from "./pgClient.js";
 // Fixed lock ids — must stay stable across deploys.
 export const MIGRATIONS_LOCK_KEY = 7_480_001;
 export const SYNC_SCHEDULER_LOCK_KEY = 7_480_002;
+export const SYNC_QUEUE_LOCK_KEY = 7_480_003;
 
 export const tryAdvisoryLock = async (db: Db, key: number): Promise<boolean> => {
   const rows = await db<{ acquired: boolean }[]>`

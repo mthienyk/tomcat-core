@@ -2,13 +2,16 @@ import type { SyncWorker, SyncWorkerDeps } from "./types.js";
 import type { Db } from "../storage/pgClient.js";
 import type { CoreStore } from "../storage/coreStore.js";
 import {
+  SYNC_QUEUE_LOCK_KEY,
   SYNC_SCHEDULER_LOCK_KEY,
   releaseAdvisoryLock,
   tryAdvisoryLock,
 } from "../storage/pgAdvisoryLock.js";
 import {
+  createHubspotActivityQueueWorker,
+  createHubspotActivityReconcileWorker,
+  hubspotActivityBackfillWorker,
   hubspotStartupsWorker,
-  hubspotActivityWorker,
 } from "./hubspot.js";
 import {
   mondayPortfolioWorker,
@@ -17,20 +20,14 @@ import {
 } from "./monday.js";
 import { driveBoardPacksWorker } from "./drive.js";
 
-const ALL_WORKERS: SyncWorker[] = [
-  hubspotStartupsWorker,
-  mondayPortfolioWorker,
-  hubspotActivityWorker,
-  mondaySignalsWorker,
-  mondayEventsWorker,
-  driveBoardPacksWorker,
-];
-
-const FULL_SYNC_INTERVAL_MS = 15 * 60 * 1000;
-const STARTUP_DELAY_MS = 10 * 1000;
-
-export type SyncSchedulerOptions = {
+export type SyncSchedulerConfig = {
   overlapGraceMinutes: number;
+  queuePollIntervalMs: number;
+  queueBatchSize: number;
+  queueStaleJobMs: number;
+  queueRetryDelayMs: number;
+  reconcileIntervalMs: number;
+  reconcileLookbackMs: number;
 };
 
 export type SyncScheduler = {
@@ -39,47 +36,82 @@ export type SyncScheduler = {
   runNow(dataset: string): Promise<void>;
 };
 
+const PERIODIC_INTERVAL_MS = 15 * 60 * 1000;
+const STARTUP_DELAY_MS = 10_000;
+
 export const createSyncScheduler = (
   deps: SyncWorkerDeps,
   db: Db,
   store: CoreStore,
-  options: SyncSchedulerOptions,
+  config: SyncSchedulerConfig,
 ): SyncScheduler => {
+  const reconcileWorker = createHubspotActivityReconcileWorker({
+    lookbackMs: config.reconcileLookbackMs,
+  });
+  const queueWorker = createHubspotActivityQueueWorker({
+    batchSize: config.queueBatchSize,
+    staleJobMs: config.queueStaleJobMs,
+    retryDelayMs: config.queueRetryDelayMs,
+  });
+
+  const periodicWorkers: SyncWorker[] = [
+    hubspotStartupsWorker,
+    mondayPortfolioWorker,
+    hubspotActivityBackfillWorker,
+    mondaySignalsWorker,
+    mondayEventsWorker,
+    driveBoardPacksWorker,
+  ];
+
+  const allWorkers = [...periodicWorkers, queueWorker];
+
   let startupTimer: ReturnType<typeof setTimeout> | undefined;
-  let intervalTimer: ReturnType<typeof setInterval> | undefined;
-  let running = false;
+  let periodicTimer: ReturnType<typeof setInterval> | undefined;
+  let queueTimer: ReturnType<typeof setInterval> | undefined;
+  let reconcileTimer: ReturnType<typeof setInterval> | undefined;
+  let queueRunning = false;
+  let periodicRunning = false;
 
-  const withLeaderLock = async (fn: () => Promise<void>): Promise<void> => {
-    if (await store.hasRecentRunningSyncRun(options.overlapGraceMinutes)) {
-      deps.logger.debug(
-        { graceMinutes: options.overlapGraceMinutes },
-        "sync_scheduler_skipped_recent_running",
-      );
-      return;
-    }
-
-    const acquired = await tryAdvisoryLock(db, SYNC_SCHEDULER_LOCK_KEY);
-    if (!acquired) {
-      deps.logger.debug("sync_scheduler_skipped_not_leader");
-      return;
-    }
+  const withLeaderLock = async (
+    lockKey: number,
+    fn: () => Promise<void>,
+  ): Promise<void> => {
+    const acquired = await tryAdvisoryLock(db, lockKey);
+    if (!acquired) return;
     try {
       await fn();
     } finally {
-      await releaseAdvisoryLock(db, SYNC_SCHEDULER_LOCK_KEY);
+      await releaseAdvisoryLock(db, lockKey);
     }
   };
 
-  const runAll = async (): Promise<void> => {
-    if (running) return;
-    await withLeaderLock(async () => {
-      running = true;
+  const runPeriodic = async (): Promise<void> => {
+    if (periodicRunning) return;
+    if (await store.hasRecentRunningSyncRun(config.overlapGraceMinutes)) {
+      deps.logger.debug("sync_periodic_skipped_recent_running");
+      return;
+    }
+
+    await withLeaderLock(SYNC_SCHEDULER_LOCK_KEY, async () => {
+      periodicRunning = true;
       try {
-        for (const worker of ALL_WORKERS) {
+        for (const worker of periodicWorkers) {
           await worker.run(deps);
         }
       } finally {
-        running = false;
+        periodicRunning = false;
+      }
+    });
+  };
+
+  const runQueue = async (): Promise<void> => {
+    if (queueRunning) return;
+    await withLeaderLock(SYNC_QUEUE_LOCK_KEY, async () => {
+      queueRunning = true;
+      try {
+        await queueWorker.run(deps);
+      } finally {
+        queueRunning = false;
       }
     });
   };
@@ -88,10 +120,22 @@ export const createSyncScheduler = (
     start() {
       startupTimer = setTimeout(() => {
         startupTimer = undefined;
-        void runAll();
-        intervalTimer = setInterval(() => {
-          void runAll();
-        }, FULL_SYNC_INTERVAL_MS);
+        void runPeriodic();
+        void runQueue();
+
+        periodicTimer = setInterval(() => {
+          void runPeriodic();
+        }, PERIODIC_INTERVAL_MS);
+
+        queueTimer = setInterval(() => {
+          void runQueue();
+        }, config.queuePollIntervalMs);
+
+        reconcileTimer = setInterval(() => {
+          void withLeaderLock(SYNC_SCHEDULER_LOCK_KEY, async () => {
+            await reconcileWorker.run(deps);
+          });
+        }, config.reconcileIntervalMs);
       }, STARTUP_DELAY_MS);
     },
 
@@ -100,16 +144,24 @@ export const createSyncScheduler = (
         clearTimeout(startupTimer);
         startupTimer = undefined;
       }
-      if (intervalTimer !== undefined) {
-        clearInterval(intervalTimer);
-        intervalTimer = undefined;
+      if (periodicTimer !== undefined) {
+        clearInterval(periodicTimer);
+        periodicTimer = undefined;
+      }
+      if (queueTimer !== undefined) {
+        clearInterval(queueTimer);
+        queueTimer = undefined;
+      }
+      if (reconcileTimer !== undefined) {
+        clearInterval(reconcileTimer);
+        reconcileTimer = undefined;
       }
     },
 
     async runNow(dataset: string): Promise<void> {
-      const worker = ALL_WORKERS.find((w) => w.dataset === dataset);
+      const worker = allWorkers.find((w) => w.dataset === dataset);
       if (!worker) throw new Error(`Unknown sync dataset: ${dataset}`);
-      await withLeaderLock(async () => {
+      await withLeaderLock(SYNC_SCHEDULER_LOCK_KEY, async () => {
         await worker.run(deps);
       });
     },
