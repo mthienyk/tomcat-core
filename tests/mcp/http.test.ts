@@ -23,6 +23,16 @@ const testConfig = (): AppConfig => ({
     serviceTokenAudience: "tomcat-core",
     serviceClients: [],
     allowMockAuth: true,
+    oauthBroker: {
+      enabled: false,
+      googleWebClientId: undefined,
+      googleWebClientSecret: undefined,
+      issuerUrl: undefined,
+      allowedRedirectUriPrefixes: [],
+      accessTokenTtlSeconds: 3600,
+      refreshTokenTtlSeconds: 86400,
+      registerRateLimitPerMinute: 30,
+    },
   },
   connectors: {
     hubspotToken: undefined,

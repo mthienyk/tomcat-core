@@ -103,4 +103,68 @@ export interface CoreStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
   getUserByEmail(email: string): Promise<UserRecord | undefined>;
   listUsers(): Promise<UserRecord[]>;
+
+  // MCP OAuth broker (Tomcat Core acts as Authorization Server)
+  mcpOauth: McpOAuthStore;
+}
+
+export type McpOAuthClientRecord = {
+  clientId: string;
+  clientSecretHash: string | undefined;
+  clientName: string | undefined;
+  redirectUris: string[];
+  grantTypes: string[];
+  isPublic: boolean;
+};
+
+export type McpOAuthPendingAuthorize = {
+  googleState: string;
+  clientId: string;
+  redirectUri: string;
+  mcpState: string;
+  codeChallenge: string;
+  codeChallengeMethod: string;
+  scope: string;
+};
+
+export type McpOAuthAuthorizationCode = {
+  codeHash: string;
+  clientId: string;
+  principalEmail: string;
+  redirectUri: string;
+  codeChallenge: string;
+  codeChallengeMethod: string;
+  scopes: string;
+};
+
+export type McpOAuthTokenRecord = {
+  tokenHash: string;
+  clientId: string;
+  principalEmail: string;
+  tokenType: "access" | "refresh";
+  scopes: string;
+  expiresAt: Date;
+};
+
+export interface McpOAuthStore {
+  createClient(client: McpOAuthClientRecord): Promise<void>;
+  getClient(clientId: string): Promise<McpOAuthClientRecord | undefined>;
+
+  savePendingAuthorize(
+    row: McpOAuthPendingAuthorize & { ttlSeconds: number },
+  ): Promise<void>;
+  popPendingAuthorize(
+    googleState: string,
+  ): Promise<McpOAuthPendingAuthorize | undefined>;
+
+  createAuthorizationCode(
+    row: McpOAuthAuthorizationCode & { ttlSeconds: number },
+  ): Promise<void>;
+  consumeAuthorizationCode(
+    codeHash: string,
+  ): Promise<McpOAuthAuthorizationCode | undefined>;
+
+  createToken(row: McpOAuthTokenRecord): Promise<void>;
+  findToken(tokenHash: string): Promise<McpOAuthTokenRecord | undefined>;
+  revokeTokensForPair(clientId: string, principalEmail: string): Promise<number>;
 }

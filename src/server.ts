@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import sensible from "@fastify/sensible";
 import cors from "@fastify/cors";
+import formbody from "@fastify/formbody";
 import type { AppConfig } from "./config/env.js";
 import { buildPinoOptions, type Logger } from "./logger/index.js";
 import { createAuditor } from "./audit/audit.js";
@@ -42,6 +43,9 @@ import { registerConnectorRoutes } from "./api/routes/connectors.js";
 import { registerSignalRoutes } from "./api/routes/signals.js";
 import { registerSignalsWebhookRoutes } from "./api/routes/signalsWebhook.js";
 import { registerMcpHttpRoutes } from "./mcp/http.js";
+import { registerMcpOauthRoutes } from "./api/routes/mcpOauth.js";
+import { McpOAuthService } from "./auth/mcpOauth/service.js";
+import { createMcpOauthIdentityResolver } from "./auth/mcpOauth/tokenResolver.js";
 
 export const buildServer = async (
   config: AppConfig,
@@ -73,6 +77,7 @@ export const buildServer = async (
   });
 
   await app.register(sensible);
+  await app.register(formbody);
   await app.register(cors, {
     origin:
       config.cors.allowedOrigins.length > 0 ? config.cors.allowedOrigins : true,
@@ -97,13 +102,13 @@ export const buildServer = async (
 
   // --- Auth resolvers ---
   const resolvers: IdentityResolver[] = [];
-  if (config.auth.googleOAuthClientId) {
-    const roleResolver = coreStore
-      ? createDbRoleResolver(coreStore, {
-          autoProvisionDomains: config.auth.allowedGoogleDomains,
-        })
-      : placeholderRoleResolver;
+  const roleResolver = coreStore
+    ? createDbRoleResolver(coreStore, {
+        autoProvisionDomains: config.auth.allowedGoogleDomains,
+      })
+    : placeholderRoleResolver;
 
+  if (config.auth.googleOAuthClientId) {
     if (!coreStore && config.env === "development") {
       app.log.warn(
         "placeholder role resolver enabled: replace before production auth rollout",
@@ -116,6 +121,32 @@ export const buildServer = async (
         allowedDomains: config.auth.allowedGoogleDomains,
         resolveRole: roleResolver,
       }),
+    );
+  }
+
+  // --- MCP OAuth broker (Tomcat Core acts as Authorization Server) ---
+  const oauthBroker = config.auth.oauthBroker;
+  let mcpOauthService: McpOAuthService | undefined;
+  if (
+    oauthBroker.enabled
+    && coreStore
+    && oauthBroker.googleWebClientId
+    && oauthBroker.googleWebClientSecret
+  ) {
+    mcpOauthService = new McpOAuthService({
+      store: coreStore.mcpOauth,
+      accessTokenTtlSeconds: oauthBroker.accessTokenTtlSeconds,
+      refreshTokenTtlSeconds: oauthBroker.refreshTokenTtlSeconds,
+    });
+    resolvers.push(
+      createMcpOauthIdentityResolver({
+        service: mcpOauthService,
+        resolveRole: roleResolver,
+      }),
+    );
+  } else if (oauthBroker.enabled && !coreStore) {
+    app.log.warn(
+      "MCP OAuth broker requested but disabled: requires DATABASE_URL",
     );
   }
   resolvers.push(
@@ -217,7 +248,26 @@ export const buildServer = async (
   registerHealthRoutes(app, connectors, coreStore);
   registerMeRoutes(app, auth);
 
-  if (config.auth.googleOAuthClientId || config.auth.allowMockAuth) {
+  if (
+    mcpOauthService
+    && oauthBroker.googleWebClientId
+    && oauthBroker.googleWebClientSecret
+    && oauthBroker.issuerUrl
+  ) {
+    registerMcpOauthRoutes(app, {
+      service: mcpOauthService,
+      resolveRole: roleResolver,
+      googleWebClientId: oauthBroker.googleWebClientId,
+      googleWebClientSecret: oauthBroker.googleWebClientSecret,
+      allowedGoogleDomains: config.auth.allowedGoogleDomains,
+      issuerUrl: oauthBroker.issuerUrl,
+      allowedRedirectUriPrefixes: oauthBroker.allowedRedirectUriPrefixes,
+      registerRateLimitPerMinute: oauthBroker.registerRateLimitPerMinute,
+    });
+    app.log.info("MCP OAuth broker enabled at /oauth/* and /.well-known/*");
+  }
+
+  if (config.auth.googleOAuthClientId || config.auth.allowMockAuth || mcpOauthService) {
     registerMcpHttpRoutes(app, {
       services: {
         startups,
@@ -233,6 +283,9 @@ export const buildServer = async (
       },
       auditor,
       auth,
+      ...(oauthBroker.issuerUrl
+        ? { resourceMetadataBaseUrl: oauthBroker.issuerUrl }
+        : {}),
     });
     app.log.info("MCP Streamable HTTP enabled at /mcp");
   }

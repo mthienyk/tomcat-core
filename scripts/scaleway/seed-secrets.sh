@@ -118,6 +118,33 @@ HUBSPOT_API_TOKEN="${HUBSPOT_API_TOKEN:-$(read_env_var "$SECRETS_FILE" HUBSPOT_A
 MONDAY_API_TOKEN="${MONDAY_API_TOKEN:-$(read_env_var "$SECRETS_FILE" MONDAY_API_TOKEN)}"
 DRIVE_JSON="${GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON:-$(read_env_var "$SECRETS_FILE" GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON)}"
 DRIVE_FILE="${GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE:-$(read_env_var "$SECRETS_FILE" GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE)}"
+GOOGLE_OAUTH_WEB_CLIENT_ID="${GOOGLE_OAUTH_WEB_CLIENT_ID:-$(read_env_var "$SECRETS_FILE" GOOGLE_OAUTH_WEB_CLIENT_ID)}"
+GOOGLE_OAUTH_WEB_CLIENT_SECRET="${GOOGLE_OAUTH_WEB_CLIENT_SECRET:-$(read_env_var "$SECRETS_FILE" GOOGLE_OAUTH_WEB_CLIENT_SECRET)}"
+WEB_FILE="${GOOGLE_OAUTH_WEB_CLIENT_FILE:-$(read_env_var "$SECRETS_FILE" GOOGLE_OAUTH_WEB_CLIENT_FILE)}"
+
+if [[ -z "$GOOGLE_OAUTH_WEB_CLIENT_SECRET" && -n "$WEB_FILE" ]]; then
+  WEB_PATH="${WEB_FILE/#/$ROOT_DIR/}"
+  if [[ -f "$WEB_PATH" ]]; then
+    GOOGLE_OAUTH_WEB_CLIENT_SECRET="$(python3 - "$WEB_PATH" <<'PY'
+import json, sys
+from pathlib import Path
+raw = json.loads(Path(sys.argv[1]).read_text())
+web = raw.get("web") or raw.get("installed") or {}
+print(web.get("client_secret", ""))
+PY
+)"
+    if [[ -z "$GOOGLE_OAUTH_WEB_CLIENT_ID" ]]; then
+      GOOGLE_OAUTH_WEB_CLIENT_ID="$(python3 - "$WEB_PATH" <<'PY'
+import json, sys
+from pathlib import Path
+raw = json.loads(Path(sys.argv[1]).read_text())
+web = raw.get("web") or raw.get("installed") or {}
+print(web.get("client_id", ""))
+PY
+)"
+    fi
+  fi
+fi
 
 if [[ -z "$DRIVE_JSON" && -n "$DRIVE_FILE" ]]; then
   if [[ ! -f "$ROOT_DIR/$DRIVE_FILE" && ! -f "$DRIVE_FILE" ]]; then
@@ -147,6 +174,10 @@ OPENAI_SECRET_ID="$(ensure_secret openai-api-key "$OPENAI_API_KEY")"
 HUBSPOT_SECRET_ID="$(ensure_secret hubspot-api-token "$HUBSPOT_API_TOKEN")"
 MONDAY_SECRET_ID="$(ensure_secret monday-api-token "$MONDAY_API_TOKEN")"
 DRIVE_SECRET_ID="$(ensure_secret google-drive-service-account-json "$DRIVE_JSON")"
+if [[ -n "$GOOGLE_OAUTH_WEB_CLIENT_SECRET" ]]; then
+  WEB_OAUTH_SECRET_ID="$(ensure_secret google-oauth-web-client-secret "$GOOGLE_OAUTH_WEB_CLIENT_SECRET")"
+  write_state SECRET_ID_GOOGLE_OAUTH_WEB_CLIENT_SECRET "$WEB_OAUTH_SECRET_ID"
+fi
 
 write_state SECRET_ID_DATABASE_URL "$DB_SECRET_ID"
 write_state SECRET_ID_SERVICE_TOKEN_SECRET "$TOKEN_SECRET_ID"

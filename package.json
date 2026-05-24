@@ -25,6 +25,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",
     "@fastify/cors": "^10.0.1",
+    "@fastify/formbody": "^8.0.2",
     "@fastify/sensible": "^6.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.10.0",

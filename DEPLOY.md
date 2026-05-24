@@ -18,7 +18,9 @@ Required in `.env.secrets` for deploy:
 |---|---|
 | `DATABASE_URL` | Postgres read model |
 | `SERVICE_TOKEN_SECRET` | Service JWT signing |
-| `GOOGLE_OAUTH_CLIENT_ID` | Google `@tomcat.eu` human auth (Desktop client id) |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google Desktop client id (CLI + ID token verification) |
+| `GOOGLE_OAUTH_WEB_CLIENT_ID` | Google Web client id (MCP OAuth proxy) |
+| `GOOGLE_OAUTH_WEB_CLIENT_SECRET` | Google Web client secret (MCP OAuth proxy) |
 | Connector / LLM keys | See `.env.secrets.example` |
 
 Human auth: [docs/auth-google-mcp.md](./docs/auth-google-mcp.md). After deploy, add team members to the `users` table before they can call protected routes with Google tokens.

@@ -13,6 +13,28 @@ export type McpHttpRouteDeps = {
   services: AgentToolServices;
   auditor: Auditor;
   auth: AuthMiddleware;
+  resourceMetadataBaseUrl?: string;
+};
+
+const buildWwwAuthenticate = (
+  req: FastifyRequest,
+  fallback: string | undefined,
+): string => {
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
+  let base: string;
+  if (host) {
+    const proto = (req.headers["x-forwarded-proto"] as string) ?? "https";
+    base = `${proto}://${host}`;
+  } else if (fallback) {
+    base = fallback.replace(/\/$/, "");
+  } else {
+    base = "";
+  }
+  const metadataUrl = base
+    ? `${base}/.well-known/oauth-protected-resource`
+    : "/.well-known/oauth-protected-resource";
+  return `Bearer realm="mcp", resource_metadata="${metadataUrl}"`;
 };
 
 const isHumanMcpCaller = (identity: Identity | undefined): identity is HumanIdentity =>
@@ -100,6 +122,11 @@ export const registerMcpHttpRoutes = (
       await reply.status(204).send();
       return;
     }
+
+    reply.header(
+      "WWW-Authenticate",
+      buildWwwAuthenticate(req, deps.resourceMetadataBaseUrl),
+    );
 
     await preHandler(req, reply);
     if (!isHumanMcpCaller(req.identity)) {

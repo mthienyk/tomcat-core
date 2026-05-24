@@ -5,6 +5,11 @@ import type {
   SyncRun,
   DatasetFreshness,
   UserRecord,
+  McpOAuthClientRecord,
+  McpOAuthPendingAuthorize,
+  McpOAuthAuthorizationCode,
+  McpOAuthTokenRecord,
+  McpOAuthStore,
 } from "./coreStore.js";
 import type {
   Startup,
@@ -699,8 +704,196 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       const rows = await db<UserRow[]>`select * from users order by email`;
       return rows.map(mapUser);
     },
+
+    mcpOauth: buildMcpOauthStore(db),
   };
 };
+
+type McpOAuthClientRow = {
+  client_id: string;
+  client_secret_hash: string | null;
+  client_name: string | null;
+  redirect_uris: string[];
+  grant_types: string[];
+  is_public: boolean;
+};
+
+type McpOAuthPendingRow = {
+  google_state: string;
+  client_id: string;
+  redirect_uri: string;
+  mcp_state: string;
+  code_challenge: string;
+  code_challenge_method: string;
+  scope: string;
+  expires_at: Date;
+};
+
+type McpOAuthCodeRow = {
+  code_hash: string;
+  client_id: string;
+  principal_email: string;
+  redirect_uri: string;
+  code_challenge: string;
+  code_challenge_method: string;
+  scopes: string;
+  expires_at: Date;
+  used_at: Date | null;
+};
+
+type McpOAuthTokenRow = {
+  token_hash: string;
+  client_id: string;
+  principal_email: string;
+  token_type: "access" | "refresh";
+  scopes: string;
+  expires_at: Date;
+  revoked_at: Date | null;
+};
+
+const mapClient = (r: McpOAuthClientRow): McpOAuthClientRecord => ({
+  clientId: r.client_id,
+  clientSecretHash: r.client_secret_hash ?? undefined,
+  clientName: r.client_name ?? undefined,
+  redirectUris: r.redirect_uris,
+  grantTypes: r.grant_types,
+  isPublic: r.is_public,
+});
+
+const buildMcpOauthStore = (db: Db): McpOAuthStore => ({
+  async createClient(client: McpOAuthClientRecord): Promise<void> {
+    await db`
+      insert into mcp_oauth_clients
+        (client_id, client_secret_hash, client_name, redirect_uris, grant_types, is_public)
+      values (
+        ${client.clientId},
+        ${client.clientSecretHash ?? null},
+        ${client.clientName ?? null},
+        ${db.json(client.redirectUris)},
+        ${db.json(client.grantTypes)},
+        ${client.isPublic}
+      )
+    `;
+  },
+
+  async getClient(clientId: string): Promise<McpOAuthClientRecord | undefined> {
+    const rows = await db<McpOAuthClientRow[]>`
+      select * from mcp_oauth_clients where client_id = ${clientId}
+    `;
+    return rows[0] ? mapClient(rows[0]) : undefined;
+  },
+
+  async savePendingAuthorize(row): Promise<void> {
+    await db`
+      insert into mcp_oauth_pending_authorizes
+        (google_state, client_id, redirect_uri, mcp_state,
+         code_challenge, code_challenge_method, scope, expires_at)
+      values (
+        ${row.googleState}, ${row.clientId}, ${row.redirectUri},
+        ${row.mcpState}, ${row.codeChallenge}, ${row.codeChallengeMethod},
+        ${row.scope}, now() + (${row.ttlSeconds} || ' seconds')::interval
+      )
+    `;
+  },
+
+  async popPendingAuthorize(googleState): Promise<McpOAuthPendingAuthorize | undefined> {
+    const rows = await db<McpOAuthPendingRow[]>`
+      delete from mcp_oauth_pending_authorizes
+      where google_state = ${googleState} and expires_at > now()
+      returning *
+    `;
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      googleState: row.google_state,
+      clientId: row.client_id,
+      redirectUri: row.redirect_uri,
+      mcpState: row.mcp_state,
+      codeChallenge: row.code_challenge,
+      codeChallengeMethod: row.code_challenge_method,
+      scope: row.scope,
+    };
+  },
+
+  async createAuthorizationCode(row): Promise<void> {
+    await db`
+      insert into mcp_oauth_authorization_codes
+        (code_hash, client_id, principal_email, redirect_uri,
+         code_challenge, code_challenge_method, scopes, expires_at)
+      values (
+        ${row.codeHash}, ${row.clientId}, ${row.principalEmail}, ${row.redirectUri},
+        ${row.codeChallenge}, ${row.codeChallengeMethod}, ${row.scopes},
+        now() + (${row.ttlSeconds} || ' seconds')::interval
+      )
+    `;
+  },
+
+  async consumeAuthorizationCode(
+    codeHash,
+  ): Promise<McpOAuthAuthorizationCode | undefined> {
+    const rows = await db<McpOAuthCodeRow[]>`
+      update mcp_oauth_authorization_codes
+      set used_at = now()
+      where code_hash = ${codeHash}
+        and used_at is null
+        and expires_at > now()
+      returning *
+    `;
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      codeHash: row.code_hash,
+      clientId: row.client_id,
+      principalEmail: row.principal_email,
+      redirectUri: row.redirect_uri,
+      codeChallenge: row.code_challenge,
+      codeChallengeMethod: row.code_challenge_method,
+      scopes: row.scopes,
+    };
+  },
+
+  async createToken(row: McpOAuthTokenRecord): Promise<void> {
+    await db`
+      insert into mcp_oauth_tokens
+        (token_hash, client_id, principal_email, token_type, scopes, expires_at)
+      values (
+        ${row.tokenHash}, ${row.clientId}, ${row.principalEmail},
+        ${row.tokenType}, ${row.scopes}, ${row.expiresAt}
+      )
+    `;
+  },
+
+  async findToken(tokenHash: string): Promise<McpOAuthTokenRecord | undefined> {
+    const rows = await db<McpOAuthTokenRow[]>`
+      select * from mcp_oauth_tokens
+      where token_hash = ${tokenHash}
+        and revoked_at is null
+        and expires_at > now()
+    `;
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      tokenHash: row.token_hash,
+      clientId: row.client_id,
+      principalEmail: row.principal_email,
+      tokenType: row.token_type,
+      scopes: row.scopes,
+      expiresAt: row.expires_at,
+    };
+  },
+
+  async revokeTokensForPair(clientId: string, principalEmail: string): Promise<number> {
+    const rows = await db<{ token_hash: string }[]>`
+      update mcp_oauth_tokens
+      set revoked_at = now()
+      where client_id = ${clientId}
+        and principal_email = ${principalEmail}
+        and revoked_at is null
+      returning token_hash
+    `;
+    return rows.length;
+  },
+});
 
 async function refreshFreshnessInternal(db: Db, dataset: string): Promise<void> {
   const table = datasetToTable(dataset);

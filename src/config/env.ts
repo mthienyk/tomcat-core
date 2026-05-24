@@ -34,6 +34,21 @@ const EnvSchema = z.object({
 
   ALLOWED_GOOGLE_DOMAINS: z.string().default("tomcat.eu"),
   GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_WEB_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_WEB_CLIENT_SECRET: z.string().optional(),
+  OAUTH_ISSUER_URL: z.string().url().optional(),
+  OAUTH_ALLOWED_REDIRECT_URI_PREFIXES: z.string().optional(),
+  OAUTH_ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  OAUTH_REFRESH_TOKEN_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 60 * 24 * 30),
+  OAUTH_REGISTER_RATE_LIMIT_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(30),
 
   SERVICE_TOKEN_SECRET: z
     .string()
@@ -94,6 +109,16 @@ export type AppConfig = {
     serviceTokenAudience: string;
     serviceClients: { clientId: string; scopes: string[] }[];
     allowMockAuth: boolean;
+    oauthBroker: {
+      enabled: boolean;
+      googleWebClientId: string | undefined;
+      googleWebClientSecret: string | undefined;
+      issuerUrl: string | undefined;
+      allowedRedirectUriPrefixes: string[];
+      accessTokenTtlSeconds: number;
+      refreshTokenTtlSeconds: number;
+      registerRateLimitPerMinute: number;
+    };
   };
     connectors: {
       hubspotToken: string | undefined;
@@ -154,6 +179,22 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       serviceTokenAudience: parsed.SERVICE_TOKEN_AUDIENCE,
       serviceClients: parseServiceClients(parsed.SERVICE_CLIENTS),
       allowMockAuth: parsed.ALLOW_MOCK_AUTH,
+      oauthBroker: {
+        enabled: Boolean(
+          parsed.GOOGLE_OAUTH_WEB_CLIENT_ID
+          && parsed.GOOGLE_OAUTH_WEB_CLIENT_SECRET,
+        ),
+        googleWebClientId: parsed.GOOGLE_OAUTH_WEB_CLIENT_ID,
+        googleWebClientSecret: parsed.GOOGLE_OAUTH_WEB_CLIENT_SECRET,
+        issuerUrl: parsed.OAUTH_ISSUER_URL,
+        allowedRedirectUriPrefixes: csv(
+          parsed.OAUTH_ALLOWED_REDIRECT_URI_PREFIXES
+            ?? "cursor://,https://www.cursor.com/,http://localhost:",
+        ),
+        accessTokenTtlSeconds: parsed.OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+        refreshTokenTtlSeconds: parsed.OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+        registerRateLimitPerMinute: parsed.OAUTH_REGISTER_RATE_LIMIT_PER_MINUTE,
+      },
     },
     connectors: {
       hubspotToken: parsed.HUBSPOT_API_TOKEN,
