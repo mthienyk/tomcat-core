@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "./pgClient.js";
 import type {
   CoreStore,
+  GrepNotesParams,
   SyncRun,
   DatasetFreshness,
   UserRecord,
@@ -43,6 +44,9 @@ import type {
   KnowledgeIndexChunkInput,
 } from "../domain/crmMemory.js";
 import { noteNeedsSemanticIndex } from "../services/crmMemory/contentHash.js";
+import { MIN_SEMANTIC_INDEX_BODY_LENGTH } from "../services/crmMemory/indexEligibility.js";
+import { planSemanticIndexOnNoteUpsert } from "../services/crmMemory/indexInvalidation.js";
+import { buildIlikePattern, escapeIlikePattern } from "../services/crmMemory/grepTerms.js";
 import { buildHubspotActivityDedupeKey } from "../domain/syncQueue.js";
 
 const now = (): string => new Date().toISOString();
@@ -530,15 +534,9 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
         select * from notes where id = ${n.id}
       `;
       const existing = existingRows[0] ? mapNote(existingRows[0]) : undefined;
-      const indexFieldsChanged =
-        existing !== undefined
-        && (
-          existing.body !== n.body
-          || existing.startupId !== n.startupId
-          || existing.authorEmail !== n.authorEmail
-        );
+      const plan = planSemanticIndexOnNoteUpsert(existing, n);
 
-      if (indexFieldsChanged) {
+      if (plan.shouldDeleteChunks) {
         await db`
           delete from knowledge_index_chunks
           where source_kind = 'hubspot_note' and source_id = ${n.id}
@@ -546,12 +544,17 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       }
 
       const t = now();
+      const semanticHashForInsert = plan.keepExistingHash
+        ? null
+        : plan.nextSemanticIndexHash;
+
       await db`
         insert into notes
-          (id, startup_id, author_email, body, sensitivity, created_at, source, synced_at)
+          (id, startup_id, author_email, body, sensitivity, created_at, source, synced_at, semantic_index_hash)
         values (
           ${n.id}, ${n.startupId ?? null}, ${n.authorEmail}, ${n.body},
-          ${n.sensitivity}, ${n.createdAt}, ${db.json(n.source)}, ${t}
+          ${n.sensitivity}, ${n.createdAt}, ${db.json(n.source)}, ${t},
+          ${semanticHashForInsert}
         )
         on conflict (id) do update set
           startup_id = excluded.startup_id,
@@ -562,11 +565,8 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
           source = excluded.source,
           synced_at = excluded.synced_at,
           semantic_index_hash = case
-            when notes.body is distinct from excluded.body
-              or notes.startup_id is distinct from excluded.startup_id
-              or notes.author_email is distinct from excluded.author_email
-            then null
-            else notes.semantic_index_hash
+            when ${plan.keepExistingHash} then notes.semantic_index_hash
+            else ${plan.nextSemanticIndexHash}
           end
       `;
     },
@@ -583,10 +583,12 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       const rows = await db<NoteRow[]>`
         select * from notes
         where startup_id is not null
-          and length(trim(body)) >= 100
-        order by
-          case when semantic_index_hash is null then 0 else 1 end,
-          created_at desc
+          and length(trim(body)) >= ${MIN_SEMANTIC_INDEX_BODY_LENGTH}
+          and (
+            semantic_index_hash is null
+            or semantic_index_hash not like 'skip:%'
+          )
+        order by synced_at desc nulls last, created_at desc
         limit ${scanLimit}
       `;
 
@@ -615,6 +617,54 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
         select * from notes where startup_id = ${startupId} order by created_at desc
       `;
       return rows.map(mapNote);
+    },
+
+    async grepNotes(params: GrepNotesParams) {
+      if (params.terms.length === 0 || params.startupIds.length === 0) {
+        return [];
+      }
+
+      const sinceCutoff =
+        params.sinceDays !== undefined
+          ? new Date(
+              Date.now() - params.sinceDays * 86_400_000,
+            ).toISOString()
+          : undefined;
+      const authorPattern =
+        params.authorEmail !== undefined
+          ? `%${escapeIlikePattern(params.authorEmail.trim().toLowerCase())}%`
+          : undefined;
+
+      let termCondition = db`true`;
+      if (params.matchMode === "all") {
+        for (const term of params.terms) {
+          termCondition = db`${termCondition} and body ilike ${buildIlikePattern(term)}`;
+        }
+      } else {
+        termCondition = db`false`;
+        for (const term of params.terms) {
+          termCondition = db`${termCondition} or body ilike ${buildIlikePattern(term)}`;
+        }
+      }
+
+      type GrepRow = NoteRow & { startup_name: string | null };
+
+      const rows = await db<GrepRow[]>`
+        select n.*, s.name as startup_name
+        from notes n
+        left join startups s on s.id = n.startup_id
+        where n.startup_id = any(${params.startupIds})
+          and ${termCondition}
+          ${authorPattern !== undefined ? db`and lower(n.author_email) like ${authorPattern}` : db``}
+          ${sinceCutoff !== undefined ? db`and n.created_at >= ${sinceCutoff}` : db``}
+        order by n.created_at desc
+        limit ${params.limit}
+      `;
+
+      return rows.map((row) => ({
+        note: mapNote(row),
+        startupName: row.startup_name ?? undefined,
+      }));
     },
 
     // --- Meetings ---

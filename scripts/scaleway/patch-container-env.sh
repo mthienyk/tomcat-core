@@ -91,7 +91,7 @@ defaults = {
     ),
     "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES": pick(
         "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES",
-        "cursor://,https://www.cursor.com/,http://localhost:",
+        "cursor://,https://www.cursor.com/,http://localhost:,https://claude.ai/,https://claude.com/",
     ),
 }
 
@@ -119,6 +119,10 @@ sync_keys = {
     "CRM_MEMORY_SEMANTIC_PROVIDER": pick("CRM_MEMORY_SEMANTIC_PROVIDER", "openai"),
     "CRM_MEMORY_SEMANTIC_MODEL": pick("CRM_MEMORY_SEMANTIC_MODEL", "gpt-5-mini"),
     "CRM_MEMORY_REASONING_EFFORT": pick("CRM_MEMORY_REASONING_EFFORT", "minimal"),
+    "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES": pick(
+        "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES",
+        "cursor://,https://www.cursor.com/,http://localhost:,https://claude.ai/,https://claude.com/",
+    ),
 }
 public_env.update(sync_keys)
 

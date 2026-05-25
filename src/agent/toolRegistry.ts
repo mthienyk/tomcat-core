@@ -24,6 +24,7 @@ import { TOOL_DESCRIPTIONS } from "./toolCopy.js";
 import type { BpWorkflowService } from "../services/bpWorkflow.js";
 import type { PortfolioCompaniesService } from "../services/portfolioCompanies.js";
 import type { SimilarCasesService } from "../services/crmMemory/similarCases.js";
+import type { GrepCrmNotesService } from "../services/crmMemory/grepCrmNotes.js";
 import { readBpPlaybook } from "../services/bpPlaybook.js";
 
 export type AgentToolServices = {
@@ -40,6 +41,7 @@ export type AgentToolServices = {
   bpWorkflow: BpWorkflowService;
   portfolioCompanies: PortfolioCompaniesService;
   similarCases: SimilarCasesService | undefined;
+  grepCrmNotes: GrepCrmNotesService | undefined;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -304,6 +306,18 @@ const FindSimilarCasesArgs = z
     sinceDays: z.number().int().positive().max(3650).optional(),
     chunkKind: z.enum(["recap", "investment_lens"]).optional(),
     limit: z.number().int().positive().max(25).optional(),
+  })
+  .strict();
+
+const GrepCrmNotesArgs = z
+  .object({
+    query: z.string().min(2),
+    matchMode: z.enum(["all", "any"]).optional(),
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    authorEmail: z.string().email().optional(),
+    sinceDays: z.number().int().positive().max(3650).optional(),
+    limit: z.number().int().positive().max(50).optional(),
   })
   .strict();
 
@@ -835,6 +849,33 @@ export const AGENT_TOOL_REGISTRY = [
         ...(args.sector !== undefined ? { sector: args.sector } : {}),
         ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
         ...(args.chunkKind !== undefined ? { chunkKind: args.chunkKind } : {}),
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+      });
+    },
+  }),
+  defineAgentTool({
+    name: "grep_crm_notes",
+    title: "Grep CRM Notes",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.grep_crm_notes),
+
+    labels: ["startup", "crm", "notes", "keyword"],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: GrepCrmNotesArgs,
+    execute: async ({ services, caller, args }) => {
+      if (!services.grepCrmNotes) {
+        throw BadRequest(
+          "CRM note keyword search requires the Postgres read model.",
+        );
+      }
+      return services.grepCrmNotes.grepCrmNotes(caller, {
+        query: args.query,
+        ...(args.matchMode !== undefined ? { matchMode: args.matchMode } : {}),
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined ? { startupName: args.startupName } : {}),
+        ...(args.authorEmail !== undefined ? { authorEmail: args.authorEmail } : {}),
+        ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
       });
     },

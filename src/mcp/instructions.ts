@@ -41,13 +41,18 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 
 7. **Contact enrichment** — Only call enrichment tools when the user confirms the deal is qualified.
 
-8. **M1/M2 prep (Élie)** — For meeting prep, call \`find_competitive_history\` with
-   \`notesPerMatch=5\`. Before \`find_similar_cases\`, write 1–3 dense \`searchTexts\`
-   styled like Tomcat M1/M2 notes (market, GTM, red flags, investment judgment), then pass
-   \`startupId\` from \`resolve_entity\` to exclude the reference company. Filter Élie notes
-   with \`authorEmail=elie.dupredesaintmaur@tomcat.eu\` when the user asks for his prior
-   M1/M2 takes on similar companies. Distinguish short ops notes from M1/M2 synthesis
-   (long body, M0–M4 pattern in text).
+8. **M1/M2 prep (Élie)** — Semantic memory workflow:
+   - \`resolve_entity\` if a reference company is known
+   - Choose mode: product wedge → \`find_similar_cases\` with \`chunkKind: recap\`;
+     judgment profile → \`chunkKind: investment_lens\`
+   - Write 1–2 \`searchTexts\` as **refined excerpts** (operational vocabulary, facts +
+     judgment), not user questions or industry jargon. Prefer \`noteId\` or \`startupId\`
+     anchor when available.
+   - Call \`find_similar_cases\` **without** \`authorEmail\` first; inspect
+     \`regimeSignals\` and \`qualitySignals\` (ignore top 1 if \`noisyTopMatch\`)
+   - \`read_startup_notes\` on top 2–3 matches; add \`authorEmail=elie.dupredesaintmaur@tomcat.eu\`
+     when Élie's perspective is needed
+   - \`find_competitive_history\` only as a broad sector-tag complement, not for wedge search
 
 ## Common workflows
 
@@ -59,9 +64,10 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 | Company 360 | resolve_entity → build_company_360_context |
 | Portfolio annuaire | list_portfolio_companies → resolve_entity |
 ${signalHubWorkflowRow}
-| Competitive context | find_competitive_history → read_startup_notes on top matches |
+| Competitive context | find_similar_cases(chunkKind recap) → read_startup_notes on top matches |
 | Semantic CRM memory | find_similar_cases(searchTexts, startupId) → read_startup_notes on top matches |
-| M1 prep (Élie) | resolve_entity → find_latest_deck → find_competitive_history → find_similar_cases(searchTexts) → read_startup_notes |
+| Keyword CRM search | grep_crm_notes(query, matchMode) → read_startup_notes on hits |
+| M1 prep (Élie) | resolve_entity → find_latest_deck → find_similar_cases(searchTexts, chunkKind recap) → read_startup_notes (authorEmail Élie on matches) |
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |
 | Business Plan (BP) | read_bp_playbook → resolve_entity → assemble_company_finance_pack → draft_bp_tab_debt |
 

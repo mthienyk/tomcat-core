@@ -159,7 +159,7 @@ payload = {
             "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES",
             env.get(
                 "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES",
-                "cursor://,https://www.cursor.com/,http://localhost:",
+                "cursor://,https://www.cursor.com/,http://localhost:,https://claude.ai/,https://claude.com/",
             ),
         ),
         "SYNC_OVERLAP_GRACE_MINUTES": secrets.get(

@@ -1,0 +1,126 @@
+{
+  "evaluatedAt": "2026-05-25T15:09:36.073Z",
+  "queryCount": 6,
+  "meanNdcgAt5": 0.4714,
+  "regimeChecksPassed": 6,
+  "reportPath": "/Users/thienyk/programming_stuff/tomcat-core/docs/crm-memory-golden-eval-latest.json",
+  "results": [
+    {
+      "queryId": "payroll_b2b_silae_payfit",
+      "ms": 1943,
+      "searchBasis": "client_text",
+      "top5": [
+        "NessPay",
+        "Fincome",
+        "Spayr",
+        "Vysion",
+        "NooS"
+      ],
+      "ndcgAt5": 0.7204,
+      "hitAt3": true,
+      "recallTop10": 0.5,
+      "regimeLevel": "high",
+      "regimeOk": true,
+      "noisyTopMatch": false,
+      "topClusterCoherence": 0.05,
+      "notes": "Payroll wedge with accountant channel and payroll connectors"
+    },
+    {
+      "queryId": "proptech_gestion_locative_b2c_mandataire",
+      "ms": 1295,
+      "searchBasis": "client_text",
+      "top5": [
+        "Qeeps",
+        "Nopillo",
+        "La loupe Immo",
+        "Realenti",
+        "Blocshare"
+      ],
+      "ndcgAt5": 0.265,
+      "hitAt3": true,
+      "recallTop10": 0.25,
+      "regimeLevel": "high",
+      "regimeOk": true,
+      "noisyTopMatch": false,
+      "topClusterCoherence": 0.04,
+      "suggestedRewrite": "Use operational vocabulary from Tomcat refined excerpts (product facts, GTM, metrics, named competitors), not industry jargon or raw questions. Prefer 1 recap-style chunk; add investment_lens only when searching for judgment-profile matches.",
+      "notes": "Operational proptech vocabulary, not industry jargon (GED, AC3)"
+    },
+    {
+      "queryId": "creator_marketing_churn_plg",
+      "ms": 1284,
+      "searchBasis": "client_text",
+      "top5": [
+        "La Clinique E-Santé",
+        "LISA CONNECT",
+        "Kadow",
+        "Hourrail !",
+        "Greenmetrics"
+      ],
+      "ndcgAt5": 0,
+      "hitAt3": false,
+      "regimeLevel": "high",
+      "regimeOk": true,
+      "noisyTopMatch": false,
+      "topClusterCoherence": 0.04,
+      "suggestedRewrite": "Use operational vocabulary from Tomcat refined excerpts (product facts, GTM, metrics, named competitors), not industry jargon or raw questions. Prefer 1 recap-style chunk; add investment_lens only when searching for judgment-profile matches.",
+      "notes": "Judgment-profile search; noteId Favikon anchor is higher signal"
+    },
+    {
+      "queryId": "hr_talent_smb_blue_collar",
+      "ms": 1316,
+      "searchBasis": "client_text",
+      "top5": [
+        "CLIKING",
+        "Empowill",
+        "DATA DRIVEN",
+        "peetchr.com",
+        "Moha"
+      ],
+      "ndcgAt5": 0.4796,
+      "hitAt3": true,
+      "recallTop10": 0.5,
+      "regimeLevel": "high",
+      "regimeOk": true,
+      "noisyTopMatch": false,
+      "topClusterCoherence": 0.05,
+      "suggestedRewrite": "Use operational vocabulary from Tomcat refined excerpts (product facts, GTM, metrics, named competitors), not industry jargon or raw questions. Prefer 1 recap-style chunk; add investment_lens only when searching for judgment-profile matches.",
+      "notes": "HR talent management, not payroll core"
+    },
+    {
+      "queryId": "negative_question_format",
+      "ms": 1293,
+      "searchBasis": "client_text",
+      "top5": [
+        "Cashlab",
+        "Suitime",
+        "Pharow",
+        "SustainSoft",
+        "Finovox"
+      ],
+      "regimeLevel": "low",
+      "regimeOk": true,
+      "noisyTopMatch": false,
+      "topClusterCoherence": 0.06,
+      "suggestedRewrite": "Rewrite as a refined excerpt (product facts + Tomcat judgment), not a user question.",
+      "notes": "Anti-pattern — question format should trigger regimeSignals.scoreLevel low"
+    },
+    {
+      "queryId": "anchor_favikon_note",
+      "ms": 1369,
+      "searchBasis": "note_anchor",
+      "top5": [
+        "Tenors",
+        "Ocean Pink UMAY",
+        "Citydays",
+        "Bowo",
+        "MeltingSpot"
+      ],
+      "ndcgAt5": 0.8921,
+      "hitAt3": true,
+      "regimeOk": true,
+      "noisyTopMatch": false,
+      "notes": "note_anchor baseline from Favikon M1 note"
+    }
+  ]
+}

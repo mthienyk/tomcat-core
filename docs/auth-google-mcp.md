@@ -7,7 +7,7 @@ How Tomcat Core authenticates humans (`@tomcat.eu`) for the HTTP API and the loc
 | Surface | Auth | Role source |
 | --- | --- | --- |
 | Core HTTP API (prod) | `Authorization: Bearer <google-id-token>` | Postgres `users` (auto-provision `@tomcat.eu`) |
-| **MCP HTTP remote (prod)** | **MCP OAuth** (Cursor native) or Bearer Google manuel | Postgres `users` + tokens opaques MCP OAuth |
+| **MCP HTTP remote (prod)** | **MCP OAuth** (Cursor, Claude) or Bearer Google manuel | Postgres `users` + tokens opaques MCP OAuth |
 | Core HTTP API (service) | `X-Service-Token` JWT | Registered clients + optional `act_as` |
 | MCP stdio (local dev) | Google session in `.secrets/` | DB if `DATABASE_URL` set, else dev placeholder |
 | Dev only | `X-Mock-Identity` header | Disabled when `NODE_ENV=production` |
@@ -17,7 +17,7 @@ Google OAuth uses two clients:
 | Client | Usage |
 | --- | --- |
 | **Desktop** | CLI (`npm run auth:google`), stdio MCP, vérification Bearer Google manuel |
-| **Web** | MCP OAuth proxy (`/oauth/*`) pour Cursor remote |
+| **Web** | MCP OAuth proxy (`/oauth/*`) pour Cursor et Claude remote |
 
 ## One-time GCP setup
 
@@ -125,6 +125,26 @@ Re-run `npm run auth:token` when the token expires (~1 hour).
 
 Before first use: `npm run auth:google`.
 
+## Claude MCP config
+
+Claude (web, Desktop, Cowork) se connecte via **Settings → Connectors → Add custom connector**.
+Pas de token en query string ni de header statique dans l’URL (refusé par Anthropic).
+
+1. URL MCP : `https://tomcatcore91c5e290-api.functions.fnc.fr-par.scw.cloud/mcp`
+2. **Add**, puis **Connect**
+3. Login Google `@tomcat.eu`
+
+Team / Enterprise : un Owner ajoute d’abord le connecteur dans **Admin settings → Connectors** ;
+les membres cliquent ensuite **Connect**.
+
+Redirect URIs autorisées côté Tomcat (`POST /oauth/register`) :
+
+- `https://claude.ai/api/mcp/auth_callback`
+- `https://claude.com/api/mcp/auth_callback`
+
+Réf. Anthropic : [Custom connectors with remote MCP](https://claude.com/docs/connectors/custom/remote-mcp),
+[Authentication for connectors](https://claude.com/docs/connectors/building/authentication).
+
 ## Security model
 
 **Enforced today**
@@ -148,7 +168,7 @@ Before first use: `npm run auth:google`.
 | Surface | Token source | Expiry handling |
 | --- | --- | --- |
 | **stdio local** | `.secrets/google-oauth-session.json` | Auto-refresh via refresh token before each tool call |
-| **HTTP remote OAuth** | Tokens opaques émis par `/oauth/token` | Cursor refresh automatique |
+| **HTTP remote OAuth** | Tokens opaques émis par `/oauth/token` | Cursor / Claude refresh automatique |
 | **HTTP remote Bearer** | Static `Authorization` header in `mcp.json` | Manual: `npm run auth:token` (~1h) |
 
 First `@tomcat.eu` Google login auto-creates `internal_team` in Postgres. Re-login does **not** restore access after `active=false`.
@@ -195,5 +215,7 @@ Or `POST /internal/users` as an existing admin.
 | `/me` → AUTH_INVALID revoked | User has `active=false` in `users` |
 | Google shows all accounts | Normal UI; only `@tomcat.eu` Workspace accounts succeed |
 | `redirect_uri_mismatch` | Client must be **Desktop**, not Web |
+| Claude « Not connected » / OAuth ne démarre pas | Vérifier `OAUTH_ALLOWED_REDIRECT_URI_PREFIXES` inclut `https://claude.ai/` et `https://claude.com/` ; redeploy ; Disconnect → Connect |
+| Claude « Couldn't reach the MCP server » | Bug connu Anthropic (proxy `mcp-proxy.anthropic.com`) ; voir [claude-ai-mcp#217](https://github.com/anthropics/claude-ai-mcp/issues/217) |
 
 See also: [docs/society.md](./society.md), [DEPLOY.md](../DEPLOY.md), [DATABASE.md](../DATABASE.md).

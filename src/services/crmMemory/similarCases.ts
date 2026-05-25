@@ -20,6 +20,10 @@ import type { EmbeddingProvider } from "../../llm/embeddings/types.js";
 import type { StartupsService } from "../startups.js";
 import { canSeeNote } from "../../permissions/policies.js";
 import { matchesAuthorEmail } from "../noteRanking.js";
+import {
+  applyNoteQualityBoost,
+  buildSearchQualitySignals,
+} from "./searchQualitySignals.js";
 
 const EXCERPT_MAX = 400;
 const SEARCH_POOL = 60;
@@ -40,8 +44,14 @@ const aggregateByStartup = (
 ): AggregatedCase[] => {
   const grouped = new Map<string, KnowledgeChunkSearchHit[]>();
   for (const hit of hits) {
+    const boostedScore = applyNoteQualityBoost(
+      hit.score,
+      hit.meta.noteKind,
+      hit.meta.confidence,
+    );
+    const boostedHit = { ...hit, score: boostedScore };
     const bucket = grouped.get(hit.startupId) ?? [];
-    bucket.push(hit);
+    bucket.push(boostedHit);
     grouped.set(hit.startupId, bucket);
   }
 
@@ -328,7 +338,40 @@ export const buildSimilarCasesService = (deps: {
           code: ToolWarningCodes.NO_SIMILAR_CASES,
           message: "No semantically similar historical cases matched the query.",
           mitigation:
-            "Rewrite searchTexts as dense M1-style excerpts, try find_competitive_history, or broaden filters (sinceDays, authorEmail).",
+            "Rewrite searchTexts as refined recap/investment_lens excerpts with operational vocabulary, try chunkKind recap for product wedge, or broaden sinceDays.",
+        });
+      }
+
+      const qualityInputTexts =
+        searchBasis === "client_text" || searchBasis === "free_text"
+          ? queryTexts
+          : [];
+      const qualitySignalsBundle =
+        qualityInputTexts.length > 0 && matches.length > 0
+          ? buildSearchQualitySignals({
+              searchTexts: qualityInputTexts,
+              matches,
+            })
+          : undefined;
+
+      if (qualitySignalsBundle?.regimeSignals.scoreLevel === "low") {
+        warnings.push({
+          code: ToolWarningCodes.NO_SIMILAR_CASES,
+          message:
+            "Top semantic score is low — searchTexts may be outside the refined excerpt encoding regime.",
+          mitigation:
+            qualitySignalsBundle.suggestedRewrite
+            ?? "Rewrite searchTexts as operational recap/investment_lens excerpts, not a user question.",
+        });
+      }
+
+      if (qualitySignalsBundle?.qualitySignals.noisyTopMatch) {
+        warnings.push({
+          code: ToolWarningCodes.NO_SIMILAR_CASES,
+          message:
+            "Top match may be a high-score outlier — inspect top 2–3 and consider chunkKind recap or refined searchTexts.",
+          mitigation:
+            "Ignore top 1 if off-theme; prefer matches that cluster thematically in whySimilar.",
         });
       }
 
@@ -339,16 +382,14 @@ export const buildSimilarCasesService = (deps: {
           reason: "Read full CRM notes for the closest similar case",
           arguments: {
             startupId: matches[0].startupId,
-            ...(args.authorEmail !== undefined
-              ? { authorEmail: args.authorEmail }
-              : {}),
           },
         });
       }
       if (referenceStartup) {
         nextSuggestedTools.push({
           toolName: "find_competitive_history",
-          reason: "Compare sector-tagged peers as a complement to semantic memory",
+          reason:
+            "Broad portfolio scan by HubSpot sector tag (complement only, not product-wedge search)",
           arguments: { startupId: referenceStartup.id, notesPerMatch: 5 },
         });
       }
@@ -364,6 +405,15 @@ export const buildSimilarCasesService = (deps: {
           : null,
         matchCount: matches.length,
         matches,
+        ...(qualitySignalsBundle?.regimeSignals !== undefined
+          ? { regimeSignals: qualitySignalsBundle.regimeSignals }
+          : {}),
+        ...(qualitySignalsBundle?.qualitySignals !== undefined
+          ? { qualitySignals: qualitySignalsBundle.qualitySignals }
+          : {}),
+        ...(qualitySignalsBundle?.suggestedRewrite !== undefined
+          ? { suggestedRewrite: qualitySignalsBundle.suggestedRewrite }
+          : {}),
         indexStats: { chunksIndexed: indexedChunks },
       };
 

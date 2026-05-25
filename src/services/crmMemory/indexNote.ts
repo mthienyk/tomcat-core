@@ -9,8 +9,11 @@ import type { EmbeddingProvider } from "../../llm/embeddings/types.js";
 import type { Logger } from "../../logger/index.js";
 import type { SemanticCardGenerator } from "./semanticCard.js";
 import { noteContentHash } from "./contentHash.js";
-
-const MIN_BODY_LENGTH = 100;
+import {
+  noteIndexSkipHash,
+  postCardSkipReason,
+  preIndexSkipReason,
+} from "./indexEligibility.js";
 
 const chunkId = (
   noteId: string,
@@ -57,9 +60,29 @@ export const buildNoteIndexer = (deps: {
     resolveStartupForNote,
   } = deps;
 
+  const skipNote = async (
+    noteId: string,
+    body: string,
+    reason: "short" | "ops",
+  ): Promise<void> => {
+    await store.replaceKnowledgeChunksForNote(noteId, []);
+    await store.markNoteIndexed(noteId, noteIndexSkipHash(reason, body));
+  };
+
   const indexNote = async (context: NoteIndexingContext): Promise<void> => {
     const contentHash = noteContentHash(context.note.body);
+    const preSkip = preIndexSkipReason(context.note.body);
+    if (preSkip) {
+      await skipNote(context.note.id, context.note.body, preSkip);
+      return;
+    }
+
     const card = await semanticCards.generateSemanticCard(context);
+    const postSkip = postCardSkipReason(card.noteKind);
+    if (postSkip) {
+      await skipNote(context.note.id, context.note.body, postSkip);
+      return;
+    }
 
     const chunkSpecs: Array<{ kind: CrmMemoryChunkKind; text: string; idx: number }> = [
       { kind: "recap", text: card.recap, idx: 0 },
@@ -98,7 +121,7 @@ export const buildNoteIndexer = (deps: {
     let indexed = 0;
 
     const runOne = async (note: (typeof notes)[number]): Promise<void> => {
-      if (!note.startupId || note.body.trim().length < MIN_BODY_LENGTH) {
+      if (!note.startupId) {
         return;
       }
 

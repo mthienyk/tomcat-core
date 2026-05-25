@@ -6,6 +6,7 @@ export type SyncWorkerDeps = {
   store: CoreStore;
   connectors: Connectors;
   logger: Logger;
+  onHubspotNotesSynced?: (summary: { notesUpserted: number }) => void;
 };
 
 export type SyncWorker = {

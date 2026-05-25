@@ -12,7 +12,7 @@ Construire un **MCP opinionné** pour Tomcat : des tools orientés tâches (pas 
 
 | Surface | Auth | Tools exposés |
 |---------|------|---------------|
-| **Remote HTTP** (`/mcp` Scaleway) | MCP OAuth (Cursor) ou Bearer Google manuel | **20** tools (Signal Hub off) ou **29** (Signal Hub on) |
+| **Remote HTTP** (`/mcp` Scaleway) | MCP OAuth (Cursor) ou Bearer Google manuel | **21** tools (Signal Hub off) ou **30** (Signal Hub on) |
 | **stdio local** | Google session (`npm run auth:google`) | Idem, piloté par `SIGNAL_HUB_ENABLED` |
 | **HTTP `/ai/query`** | Bearer Google / service token | Registry complet (Signal Hub non filtré aujourd'hui) |
 
@@ -53,7 +53,7 @@ Scaleway prod : `/health/readiness` → **`ready`**. MCP lit HubSpot / Monday / 
 | --- | ---: |
 | startups | 1 746 |
 | notes | 4 316 |
-| knowledge_index_chunks | ~5 912 (CRM semantic memory, 2026-05-25) |
+| knowledge_index_chunks | ~3 310 (CRM semantic memory post-curation, 2026-05-25) |
 | portfolio_companies | 8 |
 | board_packs | 823 |
 
@@ -190,6 +190,7 @@ Benchmarks : **eSwit** (transform), **Yuccan/Webyn** (hybrid).
 | **P0 BP** | Benchmark chiffré eSwit (transform) |
 | Haute | HubSpot sync engine prod : webhook + backfill |
 | Haute | Alias store persistant (`entity_aliases`) |
+| Moyenne | `grep_crm_notes` + pipeline reindex post-sync HubSpot (deploy 2026-05-25) |
 | Moyenne | Activer Signal Hub prod |
 | Basse | `prepare_m1_meeting_brief`, wrappers CRM deprecated |
 

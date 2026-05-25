@@ -1,0 +1,80 @@
+# CRM semantic memory golden set
+# Validate with Élie before using as CI gate. Expand to 30-50 queries over time.
+#
+# Run evaluation (future): npm run crm:golden-eval
+
+version: 1
+canonical_source: src/services/crmMemory/goldenSet.ts
+notes: >
+  expected_top3 are canonical startup names (case-insensitive).
+  searchTexts must use operational vocabulary aligned with refined recap chunks.
+  Keep this file in sync with goldenSet.ts for Élie review.
+
+queries:
+  - query_id: payroll_b2b_silae_payfit
+    searchTexts:
+      - >-
+        NessPay-style SaaS paie intégrée Silae/PayFit, distribution via cabinets
+        comptables, avance sur salaire PME. Connecteurs paie natifs, churn et NRR
+        par cohorte.
+    chunkKind: recap
+    expected_top3:
+      - NessPay
+      - Empowill
+      - Vysion
+    expected_in_top10:
+      - Spayr
+      - Wobee
+    notes: Payroll wedge with accountant channel and payroll connectors
+
+  - query_id: proptech_gestion_locative_b2c_mandataire
+    searchTexts:
+      - >-
+        Pinql-style app gestion locative pour proprio particuliers et foncières.
+        Bail digital, état des lieux, quittancement automatique. Mandataire B2C,
+        wedge B2B foncières au nb de lots.
+    chunkKind: recap
+    expected_top3:
+      - Pinql
+      - Nopillo
+      - Avis-Locataire
+    expected_in_top10:
+      - Qlower
+      - Qeeps
+      - SmartGarant
+      - ImmoLevier
+    notes: Operational proptech vocabulary, not industry jargon (GED, AC3)
+
+  - query_id: creator_marketing_churn_plg
+    searchTexts:
+      - >-
+        Plateforme creator marketing PLG, churn mensuel élevé, usage one-shot
+        recherche influenceurs, pricing bas, pivot Key Accounts non prouvé.
+    chunkKind: investment_lens
+    expected_top3:
+      - Tenors
+      - Bowo
+      - MeltingSpot
+    notes: Judgment-profile search; anchor noteId Favikon is higher signal when available
+
+  - query_id: hr_talent_smb_blue_collar
+    searchTexts:
+      - >-
+        HR Tech SaaS entretiens annuels et GPEC pour PME/ETI blue-collar. Churn
+        très faible, contrats upfront multi-années, CVR demo faible, inbound à
+        scaler.
+    chunkKind: recap
+    expected_top3:
+      - Empowill
+      - Wobee
+    expected_in_top10:
+      - Noota
+      - Moha
+    notes: HR talent management, not payroll core
+
+  - query_id: negative_question_format
+    searchTexts:
+      - Quelles boîtes similaires avons-nous déjà vues sur la paie pour PME ?
+    chunkKind: recap
+    expect_low_regime: true
+    notes: Anti-pattern — question format should trigger regimeSignals.scoreLevel low

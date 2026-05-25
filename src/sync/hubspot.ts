@@ -75,7 +75,12 @@ export const createHubspotActivityQueueWorker = (
 ): SyncWorker => ({
   dataset: hubspotActivityQueueDataset,
 
-  async run({ store, connectors, logger }: SyncWorkerDeps): Promise<void> {
+  async run({
+    store,
+    connectors,
+    logger,
+    onHubspotNotesSynced,
+  }: SyncWorkerDeps): Promise<void> {
     const released = await store.releaseStaleSyncJobs(options.staleJobMs);
     if (released > 0) {
       logger.warn({ released }, "sync_queue_stale_jobs_released");
@@ -91,6 +96,7 @@ export const createHubspotActivityQueueWorker = (
     const run = await store.startSyncRun(hubspotActivityQueueDataset);
     let records = 0;
     let failures = 0;
+    let notesSynced = 0;
 
     try {
       for (const job of jobs) {
@@ -106,6 +112,7 @@ export const createHubspotActivityQueueWorker = (
           await store.completeSyncJob(job.id);
           if (!result.skipped) {
             records += result.notes + result.deals + result.meetings;
+            notesSynced += result.notes;
           }
         } catch (err) {
           failures += 1;
@@ -120,11 +127,17 @@ export const createHubspotActivityQueueWorker = (
 
       await refreshHubspotActivityFreshness(store);
       await store.finishSyncRun(run.id, { recordsUpserted: records });
+
+      if (notesSynced > 0 && onHubspotNotesSynced) {
+        onHubspotNotesSynced({ notesUpserted: notesSynced });
+      }
+
       logger.info(
         {
           dataset: hubspotActivityQueueDataset,
           processed: jobs.length,
           records,
+          notesSynced,
           failures,
         },
         "queue batch complete",

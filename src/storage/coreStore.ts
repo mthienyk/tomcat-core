@@ -22,6 +22,20 @@ import type {
   KnowledgeIndexChunkInput,
 } from "../domain/crmMemory.js";
 
+export type GrepNotesParams = {
+  terms: string[];
+  matchMode: "all" | "any";
+  startupIds: string[];
+  authorEmail?: string;
+  sinceDays?: number;
+  limit: number;
+};
+
+export type GrepNoteStoreHit = {
+  note: Note;
+  startupName: string | undefined;
+};
+
 export type SyncStatus = "running" | "success" | "failed";
 
 export type SyncRun = {
@@ -77,6 +91,7 @@ export interface CoreStore {
   getNoteById(id: string): Promise<Note | undefined>;
   listNotesPendingIndex(limit: number): Promise<Note[]>;
   markNoteIndexed(noteId: string, contentHash: string): Promise<void>;
+  grepNotes(params: GrepNotesParams): Promise<GrepNoteStoreHit[]>;
 
   // CRM semantic memory index
   replaceKnowledgeChunksForNote(

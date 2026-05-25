@@ -64,3 +64,23 @@ export const createCrmMemoryIndexWorker = (deps: {
     },
   };
 };
+
+export const drainCrmMemoryIndex = async (
+  worker: CrmMemoryIndexWorker,
+  logger?: Logger,
+  maxRounds = 3,
+): Promise<number> => {
+  let total = 0;
+
+  for (let round = 0; round < maxRounds; round += 1) {
+    const indexed = await worker.runOnce();
+    total += indexed;
+    if (indexed === 0) break;
+  }
+
+  if (total > 0) {
+    logger?.info({ indexed: total }, "crm_memory_index_drain_complete");
+  }
+
+  return total;
+};

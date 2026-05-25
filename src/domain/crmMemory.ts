@@ -82,6 +82,22 @@ export type SimilarCaseMatch = {
   topEvidence: SimilarCaseEvidence[];
 };
 
+export type RegimeScoreLevel = "high" | "mid" | "low";
+export type VocabularyMatchLevel = "high" | "medium" | "low";
+export type ScoreDispersion = "narrow_high" | "wide_mid" | "wide_low";
+
+export type SimilarCasesRegimeSignals = {
+  scoreLevel: RegimeScoreLevel;
+  vocabularyMatch: VocabularyMatchLevel;
+  topScore: number;
+};
+
+export type SimilarCasesQualitySignals = {
+  scoreDispersion: ScoreDispersion;
+  topClusterCoherence: number;
+  noisyTopMatch: boolean;
+};
+
 export type SimilarCasesData = {
   searchBasis: "client_text" | "free_text" | "note_anchor";
   referenceStartup: {
@@ -91,6 +107,9 @@ export type SimilarCasesData = {
   } | null;
   matchCount: number;
   matches: SimilarCaseMatch[];
+  regimeSignals?: SimilarCasesRegimeSignals;
+  qualitySignals?: SimilarCasesQualitySignals;
+  suggestedRewrite?: string;
   indexStats: {
     chunksIndexed: number;
   };

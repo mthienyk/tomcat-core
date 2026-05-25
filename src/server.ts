@@ -33,9 +33,11 @@ import { buildCompanyDriveFolderService } from "./services/companyDriveFolder.js
 import { buildBoardBriefService } from "./services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "./services/portfolioSignalDigest.js";
 import { createSyncScheduler } from "./sync/scheduler.js";
-import { createCrmMemoryIndexWorker } from "./sync/crmMemoryIndexWorker.js";
+import { createCrmMemoryIndexWorker, drainCrmMemoryIndex } from "./sync/crmMemoryIndexWorker.js";
+import type { CrmMemoryIndexWorker } from "./sync/crmMemoryIndexWorker.js";
 import { resolveCrmMemorySemanticLlm } from "./services/crmMemory/semanticLlm.js";
 import { buildSimilarCasesService } from "./services/crmMemory/similarCases.js";
+import { buildGrepCrmNotesService } from "./services/crmMemory/grepCrmNotes.js";
 import { errorHandler } from "./api/errorHandler.js";
 import { registerHealthRoutes } from "./api/routes/health.js";
 import { registerMeRoutes } from "./api/routes/me.js";
@@ -229,6 +231,58 @@ export const buildServer = async (
     society,
   });
 
+  // --- LLM + CRM memory ---
+  const llmRegistry = buildLlmRegistry(config);
+  const embeddingRegistry = buildEmbeddingRegistry(config);
+
+  let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
+  let grepCrmNotes: ReturnType<typeof buildGrepCrmNotesService> | undefined;
+  let crmMemoryIndexTimer: ReturnType<typeof setInterval> | undefined;
+  let crmMemoryWorker: CrmMemoryIndexWorker | undefined;
+
+  if (coreStore && embeddingRegistry.defaultProvider()) {
+    similarCases = buildSimilarCasesService({
+      store: coreStore,
+      startups,
+      embeddings: embeddingRegistry.defaultProvider(),
+    });
+  }
+
+  if (coreStore) {
+    grepCrmNotes = buildGrepCrmNotesService({
+      store: coreStore,
+      startups,
+    });
+  }
+
+  if (coreStore && llmRegistry.hasAnyProvider()) {
+    const semanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
+
+    crmMemoryWorker = createCrmMemoryIndexWorker({
+      store: coreStore,
+      connectors,
+      embeddingRegistry,
+      logger: app.log as unknown as Logger,
+      config: {
+        enabled: config.crmMemory.indexEnabled,
+        batchSize: config.crmMemory.indexBatchSize,
+        concurrency: config.crmMemory.indexConcurrency,
+        semanticLlm,
+      },
+    });
+
+    crmMemoryIndexTimer = setInterval(() => {
+      void crmMemoryWorker!.runOnce().catch((err) => {
+        app.log.error({ err }, "crm_memory_index_batch_failed");
+      });
+    }, config.crmMemory.indexIntervalMs);
+    setTimeout(() => {
+      void crmMemoryWorker!.runOnce().catch((err) => {
+        app.log.error({ err }, "crm_memory_index_batch_failed");
+      });
+    }, 10_000);
+  }
+
   // --- Sync scheduler (when CoreStore available) ---
   let syncScheduler: ReturnType<typeof createSyncScheduler> | undefined;
   if (coreStore) {
@@ -238,6 +292,25 @@ export const buildServer = async (
         store: coreStore,
         connectors: httpConnectors,
         logger,
+        ...(crmMemoryWorker
+          ? {
+              onHubspotNotesSynced: ({ notesUpserted }) => {
+                void drainCrmMemoryIndex(crmMemoryWorker!, logger)
+                  .then((indexed) => {
+                    logger.info(
+                      { notesUpserted, indexed },
+                      "crm_memory_index_after_hubspot_sync",
+                    );
+                  })
+                  .catch((err) => {
+                    logger.error(
+                      { err, notesUpserted },
+                      "crm_memory_index_after_hubspot_sync_failed",
+                    );
+                  });
+              },
+            }
+          : {}),
       },
       pgDb!,
       coreStore,
@@ -252,49 +325,6 @@ export const buildServer = async (
       },
     );
     syncScheduler.start();
-  }
-
-  // --- LLM + AI routes ---
-  const llmRegistry = buildLlmRegistry(config);
-  const embeddingRegistry = buildEmbeddingRegistry(config);
-
-  let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
-  let crmMemoryIndexTimer: ReturnType<typeof setInterval> | undefined;
-
-  if (coreStore && embeddingRegistry.defaultProvider()) {
-    similarCases = buildSimilarCasesService({
-      store: coreStore,
-      startups,
-      embeddings: embeddingRegistry.defaultProvider(),
-    });
-  }
-
-  if (coreStore && llmRegistry.hasAnyProvider()) {
-    const semanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
-
-    const crmMemoryWorker = createCrmMemoryIndexWorker({
-      store: coreStore,
-      connectors,
-      embeddingRegistry,
-      logger: app.log as unknown as Logger,
-      config: {
-        enabled: config.crmMemory.indexEnabled,
-        batchSize: config.crmMemory.indexBatchSize,
-        concurrency: config.crmMemory.indexConcurrency,
-        semanticLlm,
-      },
-    });
-
-    crmMemoryIndexTimer = setInterval(() => {
-      void crmMemoryWorker.runOnce().catch((err) => {
-        app.log.error({ err }, "crm_memory_index_batch_failed");
-      });
-    }, config.crmMemory.indexIntervalMs);
-    setTimeout(() => {
-      void crmMemoryWorker.runOnce().catch((err) => {
-        app.log.error({ err }, "crm_memory_index_batch_failed");
-      });
-    }, 10_000);
   }
 
   app.addHook("onClose", async () => {
@@ -352,6 +382,7 @@ export const buildServer = async (
         bpWorkflow,
         portfolioCompanies,
         similarCases,
+        grepCrmNotes,
       },
       auditor,
       auth,
@@ -409,6 +440,7 @@ export const buildServer = async (
       bpWorkflow,
       portfolioCompanies,
       similarCases,
+      grepCrmNotes,
       auditor,
     });
     registerAiRoutes(app, auth, ai);

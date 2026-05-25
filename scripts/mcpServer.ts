@@ -20,6 +20,7 @@ import { buildBoardBriefService } from "../src/services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "../src/services/portfolioSignalDigest.js";
 import { buildEmbeddingRegistry } from "../src/llm/embeddings/registry.js";
 import { buildSimilarCasesService } from "../src/services/crmMemory/similarCases.js";
+import { buildGrepCrmNotesService } from "../src/services/crmMemory/grepCrmNotes.js";
 import { bootstrapSignalHub } from "../src/services/signalHub/bootstrap.js";
 import { createAuditor } from "../src/audit/audit.js";
 import { createMcpCallerResolver } from "../src/auth/mcpCaller.js";
@@ -92,11 +93,18 @@ const main = async (): Promise<void> => {
 
   const embeddingRegistry = buildEmbeddingRegistry(config);
   let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
+  let grepCrmNotes: ReturnType<typeof buildGrepCrmNotesService> | undefined;
   if (coreStore && embeddingRegistry.defaultProvider()) {
     similarCases = buildSimilarCasesService({
       store: coreStore,
       startups,
       embeddings: embeddingRegistry.defaultProvider(),
+    });
+  }
+  if (coreStore) {
+    grepCrmNotes = buildGrepCrmNotesService({
+      store: coreStore,
+      startups,
     });
   }
 
@@ -114,6 +122,7 @@ const main = async (): Promise<void> => {
     bpWorkflow,
     portfolioCompanies,
     similarCases,
+    grepCrmNotes,
   };
   const auditor = createAuditor(logger);
   const resolveCaller = createMcpCallerResolver(config, coreStore);

@@ -119,6 +119,9 @@ export const buildStartupsService = (deps: { connectors: Connectors }) => {
   };
 
   return {
+    listAllVisibleStartups: async (caller: Identity): Promise<Startup[]> =>
+      listVisibleStartups(caller),
+
     searchStartups: async (
       caller: Identity,
       query: { startupId?: string; startupName?: string; sector?: string },

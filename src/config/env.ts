@@ -258,7 +258,7 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
         issuerUrl: parsed.OAUTH_ISSUER_URL,
         allowedRedirectUriPrefixes: csv(
           parsed.OAUTH_ALLOWED_REDIRECT_URI_PREFIXES
-            ?? "cursor://,https://www.cursor.com/,http://localhost:",
+            ?? "cursor://,https://www.cursor.com/,http://localhost:,https://claude.ai/,https://claude.com/",
         ),
         accessTokenTtlSeconds: parsed.OAUTH_ACCESS_TOKEN_TTL_SECONDS,
         refreshTokenTtlSeconds: parsed.OAUTH_REFRESH_TOKEN_TTL_SECONDS,

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  noteContentHash,
-  noteNeedsSemanticIndex,
-} from "../../src/services/crmMemory/contentHash.js";
+import { noteContentHash, noteNeedsSemanticIndex } from "../../src/services/crmMemory/contentHash.js";
 import { buildSemanticCardSystemPrompt } from "../../src/prompts/crmMemory/prompts.js";
 import { resolveCrmMemorySemanticLlm } from "../../src/services/crmMemory/semanticLlm.js";
 import { buildLlmRegistry } from "../../src/llm/registry.js";
@@ -32,27 +29,28 @@ const baseConfig = (overrides?: Partial<AppConfig["crmMemory"]>): AppConfig =>
   }) as AppConfig;
 
 describe("crmMemory contentHash", () => {
+  const longBody = "M1 — strong team, payroll wedge, churn cohort. ".repeat(12);
+
   it("is stable for the same body and changes when body changes", () => {
-    const first = noteContentHash("M1 — strong team");
-    const second = noteContentHash("M1 — strong team");
-    const third = noteContentHash("M1 — weak team");
+    const first = noteContentHash(longBody);
+    const second = noteContentHash(longBody);
+    const third = noteContentHash(`${longBody} updated`);
 
     expect(first).toBe(second);
     expect(first).not.toBe(third);
   });
 
   it("detects stale semantic index hashes", () => {
-    const body = "M1 — strong team. ".repeat(8);
     expect(
       noteNeedsSemanticIndex({
-        body,
+        body: longBody,
         startupId: "42",
-        semanticIndexHash: noteContentHash(body),
+        semanticIndexHash: noteContentHash(longBody),
       }),
     ).toBe(false);
     expect(
       noteNeedsSemanticIndex({
-        body,
+        body: longBody,
         startupId: "42",
         semanticIndexHash: "stale-hash",
       }),

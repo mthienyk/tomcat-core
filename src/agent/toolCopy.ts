@@ -67,40 +67,37 @@ export const TOOL_DESCRIPTIONS = {
 
   find_competitive_history: meta({
     summary:
-      "Tomcat memory: list historically seen startups similar to a reference company "
-      + "or sector, with ranked note excerpts (M1/M2 synthesis prioritized). "
-      + "Opinionated alternative to raw sector search.",
+      "Portfolio explorer by HubSpot sector tag: list startups sharing a sector "
+      + "with a reference company, with ranked note excerpts. Not semantic search — "
+      + "tags are coarse (e.g. marketplace spans many unrelated verticals).",
     whenToUse: [
-      "Prep M1/M2: « what similar companies have we seen? »",
-      "« Sors-moi les boîtes concurrentes qu'on a vues sur ce segment »",
-      "Compare a new deal against prior HubSpot notes in the same vertical",
-      "Before prepare_m1_meeting_brief (P0) for competitive so-what",
+      "Broad portfolio scan: « all marketplace / fintech / saas companies we have seen »",
+      "After find_similar_cases when you want sector-tagged peers as a secondary lens",
+      "NOT for M1 prep on a precise product wedge — use find_similar_cases instead",
     ],
     prerequisites: [
       "Reference startup via startupId or unambiguous startupName, OR a sector filter",
     ],
     inputTips: [
-      "startupId — preferred when known from resolve_entity",
-      "sector — list peers when you do not have a reference startup",
-      "limit — max similar startups (default 10)",
+      "startupId — list peers sharing HubSpot sector tags with this company",
+      "sector — list all visible startups with this sector tag",
+      "limit — max startups (default 10)",
       "notesPerMatch — note excerpts per match (default 5, max 10)",
-      "authorEmail — filter excerpts to one author (e.g. elie.dupredesaintmaur@tomcat.eu for Élie M1/M2 notes)",
+      "authorEmail — filter excerpts to one author after matches are found",
     ],
     output: [
-      "ToolRunEnvelope with data.referenceStartup, data.matches[], note excerpts with authorEmail",
-      "Excerpts ranked by M1/M2 quality boost then recency, not raw recency only",
-      "warnings when ambiguous name or empty matches",
-      "nextSuggestedTools for deeper CRM reads",
+      "ToolRunEnvelope with data.referenceStartup, data.matches[], note excerpts",
+      "searchBasis: shared_sectors_with_reference or sector filter",
+      "Excerpts ranked by M1/M2 quality boost then recency",
     ],
     nextTools: [
+      { name: "find_similar_cases", when: "Product-wedge or cross-segment semantic memory" },
       { name: "read_startup_notes", when: "Full notes for one historical match" },
-      { name: "find_similar_cases", when: "Semantic similarity beyond sector tags" },
-      { name: "read_company_document_excerpt", when: "Deck or board pack for a match" },
     ],
     limitations: [
-      "Similarity is sector-based today, not semantic deck analysis",
-      "Only startups visible to the caller ACL",
-      "Use find_similar_cases for cross-segment semantic memory",
+      "Sector tags are HubSpot metadata, not product semantics",
+      "A marketplace tag includes proptech, BTP, and unrelated verticals",
+      "Does not replace find_similar_cases for M1/M2 prep on a specific wedge",
     ],
     sources: ["hubspot"],
     access: "confidential",
@@ -109,39 +106,81 @@ export const TOOL_DESCRIPTIONS = {
 
   find_similar_cases: meta({
     summary:
-      "Tomcat semantic memory: vector search over indexed CRM notes. Returns company-level "
-      + "matches with cited evidence. You write dense searchTexts before calling.",
+      "Tomcat semantic CRM memory: vector search over LLM-refined note excerpts "
+      + "(recap + investment_lens per note). You write searchTexts in the same "
+      + "encoding regime as the index — operational vocabulary, facts + judgment, "
+      + "not raw questions or industry jargon.",
     whenToUse: [
-      "Prep M1/M2: « have we seen similar cases before? »",
-      "After resolve_entity when sector tags are incomplete or misleading",
-      "Cross-segment memory: payroll, GTM motion, red flags, market view",
+      "M1/M2 prep: « have we seen a similar product wedge / GTM / judgment profile? »",
+      "Cross-segment memory when HubSpot sector tags are incomplete or misleading",
+      "When you have a reference note: noteId anchor (best scores)",
+      "When you have a reference startup: startupId excludes it and attaches metadata",
     ],
     prerequisites: [
       "resolve_entity first when prepping a known company",
       "Requires semantic index (Postgres + embeddings worker)",
     ],
     inputTips: [
-      "searchTexts (preferred) — 1–3 dense excerpts you write, styled like Tomcat M1/M2 notes or investment_lens (market, GTM, red flags, Tomcat judgment). Not a raw user question.",
-      "startupId — exclude the reference company from results and attach metadata",
-      "query — fallback: embeds your text directly without server-side rewriting",
-      "noteId — search from a known note body when you already have a noteId",
-      "authorEmail — filter evidence to one author (e.g. Élie M1/M2 notes)",
-      "sinceDays — limit to recent history",
-      "chunkKind — investment_lens for Tomcat judgment, recap for general similarity",
+      "INDEX SHAPE — each note is offline-refined into two embedded excerpts: recap (product facts, metrics, market) and investment_lens (Tomcat judgment, red flags, M1/M2 conclusion). The index does NOT contain raw HubSpot bodies.",
+      "searchTexts (preferred) — 1–2 excerpts YOU write in the same format as refined chunks. Encoding symmetry: use operational vocabulary (proprio, foncière, bail, Silae, PayFit, NRR cohorte, canal expert-comptable), not industry jargon (administrateurs de biens, GED, ICS) or user questions.",
+      "Good recap-style: \"Pinql — app mobile gestion locative pour proprio particuliers et foncières. Bail digital, état des lieux, quittancement. MRR 6 k€, mandataire B2C, wedge B2B foncières au nb de lots.\"",
+      "Good lens-style: \"Early-stage proptech, wedge B2B foncières crédible si drop legacy. Valo 6-7 M€ vs MRR ~6 k€. Concurrents Welmo, Qeeps.\"",
+      "Bad: \"Quelles boîtes similaires avons-nous vues?\" (question format). Bad: dense text with industry jargon unrelated to how Tomcat notes are written.",
+      "chunkKind recap — product/feature similarity (same wedge). Default for product questions.",
+      "chunkKind investment_lens — Tomcat judgment profile similarity (early-stage, burn, valo vs ARR). May return cross-sector matches; not for product wedge search.",
+      "noteId — embed a known note body (note_anchor); highest-quality path when available.",
+      "startupId — exclude reference company; prefer this over searchTexts alone when reference is known.",
+      "query — fallback direct embed without client-side rewriting.",
+      "Do NOT pass authorEmail on the first call — search broadly, then read_startup_notes with authorEmail for Élie perspective.",
+      "sinceDays — optional recency window",
     ],
     output: [
-      "ToolRunEnvelope with matches[] aggregated by startupId",
-      "Each match: whySimilar, soWhat, topEvidence note excerpts with ids",
-      "indexStats.chunksIndexed surfaces empty-index warnings",
+      "ToolRunEnvelope: matches[] with whySimilar, soWhat, topEvidence (noteId + date)",
+      "regimeSignals — scoreLevel (encoding-regime conformance, NOT match quality), vocabularyMatch, topScore",
+      "qualitySignals — topClusterCoherence, noisyTopMatch (top 1 may be a high-score outlier), scoreDispersion",
+      "suggestedRewrite — when regimeSignals indicate misaligned searchTexts",
     ],
     nextTools: [
-      { name: "read_startup_notes", when: "Full note bodies for a top match" },
-      { name: "find_competitive_history", when: "Sector-tagged peers as complement" },
+      { name: "read_startup_notes", when: "Full notes on top 2–3 matches; add authorEmail=elie here" },
+      { name: "find_competitive_history", when: "Broad sector-tag portfolio scan as complement only" },
     ],
     limitations: [
-      "Returns empty with CRM_MEMORY_INDEX_EMPTY until the indexing worker has run",
-      "Quality depends on how well searchTexts match indexed recap/investment_lens style",
-      "Semantic similarity complements but does not replace sector-based history",
+      "Score measures encoding-regime conformance, not guaranteed relevance — inspect qualitySignals.noisyTopMatch",
+      "find_competitive_history sector tags are too coarse for precise wedge search",
+      "Returns empty with CRM_MEMORY_INDEX_EMPTY until indexing worker has run",
+    ],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  grep_crm_notes: meta({
+    summary:
+      "Keyword search over raw HubSpot note bodies in the local read model "
+      + "(case-insensitive substring match). Complements find_similar_cases vector search.",
+    whenToUse: [
+      "Find exact mentions: product names, tools (Silae, PayFit), metrics, acronyms",
+      "When semantic search misses because searchTexts are misaligned or the term is rare in refined excerpts",
+      "Audit who wrote about a topic across the portfolio",
+    ],
+    inputTips: [
+      "query — space-separated terms; use quotes for phrases (\"gestion locative\")",
+      "matchMode all (default) — every term must appear; any — at least one term",
+      "startupId / startupName — scope to one company; omit to search all accessible startups",
+      "authorEmail — filter to one author after ACL",
+      "sinceDays — recency window on note createdAt",
+    ],
+    output: [
+      "matches[] with noteId, startupId, authorEmail, createdAt, excerpt around first hit",
+      "Full bodies via read_startup_notes on selected noteId",
+    ],
+    nextTools: [
+      { name: "read_startup_notes", when: "Full note body for a grep hit" },
+      { name: "find_similar_cases", when: "Semantic neighbors once you have a good anchor note" },
+    ],
+    limitations: [
+      "Substring match only — no stemming or fuzzy match yet",
+      "Searches raw note bodies, not semantic recap/investment_lens chunks",
     ],
     sources: ["hubspot"],
     access: "confidential",
