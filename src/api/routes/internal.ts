@@ -32,6 +32,15 @@ const UserBody = z.object({
   active: z.boolean().default(true),
 });
 
+const SocietyMemberBody = z.object({
+  memberId: z.string().min(1),
+  email: z.string().email(),
+  kind: z.enum(["society_member", "founder"]),
+  tier: z.string().min(1),
+  investorId: z.string().min(1).nullish().transform((v) => v ?? undefined),
+  active: z.boolean().default(true),
+});
+
 export const registerInternalRoutes = (
   app: FastifyInstance,
   auth: AuthMiddleware,
@@ -131,6 +140,39 @@ export const registerAdminRoutes = (
     async (req) => {
       if (!req.identity) throw AuthRequired();
       return store.getSyncQueueStats("hubspot.activity");
+    },
+  );
+
+  app.get(
+    "/internal/society-members",
+    { preHandler: auth.requirePermission("internal.read") },
+    async (req) => {
+      if (!req.identity) throw AuthRequired();
+      return store.listSocietyMembers();
+    },
+  );
+
+  app.post(
+    "/internal/society-members",
+    { preHandler: auth.requirePermission("admin.write") },
+    async (req) => {
+      if (!req.identity) throw AuthRequired();
+      const parsed = SocietyMemberBody.safeParse(req.body);
+      if (!parsed.success) {
+        throw BadRequest("Invalid society member body", {
+          issues: parsed.error.issues,
+        });
+      }
+      const member: import("../../domain/society.js").SocietyMember = {
+        memberId: parsed.data.memberId,
+        email: parsed.data.email,
+        kind: parsed.data.kind,
+        tier: parsed.data.tier,
+        investorId: parsed.data.investorId,
+        active: parsed.data.active,
+      };
+      await store.upsertSocietyMember(member);
+      return store.getSocietyMemberByEmail(parsed.data.email);
     },
   );
 };

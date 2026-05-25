@@ -1,4 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { normalizeEmail } from "../auth/email.js";
+import { sha256Hex } from "../auth/mcpOauth/pkce.js";
+import type { SocietyMember } from "../domain/society.js";
 import type { Db } from "./pgClient.js";
 import type {
   CoreStore,
@@ -201,6 +204,15 @@ type UserRow = {
   active: boolean;
 };
 
+type SocietyMemberRow = {
+  member_id: string;
+  email: string;
+  kind: string;
+  tier: string;
+  investor_id: string | null;
+  active: boolean;
+};
+
 // --- Mappers ---
 
 const mapStartup = (r: StartupRow): Startup => ({
@@ -356,6 +368,15 @@ const mapUser = (r: UserRow): UserRecord => ({
   active: r.active,
 });
 
+const mapSocietyMember = (r: SocietyMemberRow): SocietyMember => ({
+  memberId: r.member_id,
+  email: r.email,
+  kind: r.kind as SocietyMember["kind"],
+  tier: r.tier,
+  investorId: r.investor_id ?? undefined,
+  active: r.active,
+});
+
 // --- Store factory ---
 
 export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
@@ -423,6 +444,65 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
     async listStartups(): Promise<Startup[]> {
       const rows = await db<StartupRow[]>`select * from startups order by name`;
       return rows.map(mapStartup);
+    },
+
+    async browseStartups(query): Promise<import("../domain/society.js").StartupBrowsePage> {
+      const limit = Math.max(1, Math.min(100, Math.floor(query.limit)));
+      const fetchLimit = limit + 1;
+
+      let cursorName: string | undefined;
+      let cursorId: string | undefined;
+      if (query.cursor) {
+        const cursorRows = await db<{ name: string; id: string }[]>`
+          select name, id from startups where id = ${query.cursor}
+        `;
+        const cursorRow = cursorRows[0];
+        if (!cursorRow) {
+          return { items: [], nextCursor: undefined, hasMore: false };
+        }
+        cursorName = cursorRow.name;
+        cursorId = cursorRow.id;
+      }
+
+      const qPattern =
+        query.q !== undefined && query.q.trim().length > 0
+          ? `%${query.q.trim().replace(/[%_\\]/g, "\\$&")}%`
+          : undefined;
+      const sector = query.sector?.trim().toLowerCase();
+
+      const rows = await db<StartupRow[]>`
+        select *
+        from startups
+        where
+          (${query.includeInternalOnly} or visibility_tier <> 'internal_only')
+          and (${qPattern ?? null}::text is null or name ilike ${qPattern ?? null})
+          and (
+            ${sector ?? null}::text is null
+            or exists (
+              select 1
+              from jsonb_array_elements_text(sectors) as sector_value
+              where lower(sector_value) = ${sector ?? null}
+            )
+          )
+          and (
+            ${cursorName ?? null}::text is null
+            or name > ${cursorName ?? null}
+            or (name = ${cursorName ?? null} and id > ${cursorId ?? null})
+          )
+        order by name asc, id asc
+        limit ${fetchLimit}
+      `;
+
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const items = pageRows.map(mapStartup);
+      const last = pageRows[pageRows.length - 1];
+
+      return {
+        items,
+        nextCursor: hasMore && last ? last.id : undefined,
+        hasMore,
+      };
     },
 
     async getStartupById(id: string): Promise<Startup | undefined> {
@@ -1460,6 +1540,76 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
     async listUsers(): Promise<UserRecord[]> {
       const rows = await db<UserRow[]>`select * from users order by email`;
       return rows.map(mapUser);
+    },
+
+    async upsertSocietyMember(member: SocietyMember): Promise<void> {
+      const email = normalizeEmail(member.email);
+      await db`
+        insert into society_members
+          (member_id, email, kind, tier, investor_id, active, created_at, updated_at)
+        values (
+          ${member.memberId},
+          ${email},
+          ${member.kind},
+          ${member.tier},
+          ${member.investorId ?? null},
+          ${member.active},
+          now(),
+          now()
+        )
+        on conflict (member_id) do update set
+          email = excluded.email,
+          kind = excluded.kind,
+          tier = excluded.tier,
+          investor_id = excluded.investor_id,
+          active = excluded.active,
+          updated_at = now()
+      `;
+    },
+
+    async getSocietyMemberByEmail(email: string): Promise<SocietyMember | undefined> {
+      const normalized = normalizeEmail(email);
+      const rows = await db<SocietyMemberRow[]>`
+        select *
+        from society_members
+        where lower(email) = lower(${normalized})
+          and active = true
+      `;
+      return rows[0] ? mapSocietyMember(rows[0]) : undefined;
+    },
+
+    async listSocietyMembers(): Promise<SocietyMember[]> {
+      const rows = await db<SocietyMemberRow[]>`
+        select * from society_members order by email
+      `;
+      return rows.map(mapSocietyMember);
+    },
+
+    async createSocietyMagicLinkToken(
+      email: string,
+      ttlSeconds: number,
+    ): Promise<string> {
+      const normalized = normalizeEmail(email);
+      const token = randomBytes(48).toString("base64url");
+      const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+      await db`
+        insert into society_magic_link_tokens (token_hash, email, expires_at)
+        values (${sha256Hex(token)}, ${normalized}, ${expiresAt})
+      `;
+      return token;
+    },
+
+    async consumeSocietyMagicLinkToken(token: string): Promise<string | undefined> {
+      const tokenHash = sha256Hex(token);
+      const rows = await db<{ email: string }[]>`
+        update society_magic_link_tokens
+        set consumed_at = now()
+        where token_hash = ${tokenHash}
+          and consumed_at is null
+          and expires_at > now()
+        returning email
+      `;
+      return rows[0]?.email;
     },
 
     mcpOauth: buildMcpOauthStore(db),

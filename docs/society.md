@@ -29,55 +29,59 @@ décide jamais côté client : chaque requête recalcule accès et redaction.
 
 ## 2. Découpage Core / Society
 
-| Responsabilité | Society | Core |
+| Responsabilité | Society (`tomcat-society-api`) | Core |
 | --- | --- | --- |
-| UI (home, pipeline, events, membres…) | ✓ | |
-| Login magic link / email+password (membres) | ✓ | |
-| Login Google (`@tomcat.eu`, équipe) | ✓ UI → token Google | ✓ vérifie ID token |
-| Résolution personne → profil membre | ✓ | |
-| JWT service `society` + `act_as` vers Core | ✓ signe | ✓ vérifie |
+| UI (home, pipeline, events, membres…) | ✓ BFF + UI dev ; front brandé plus tard | |
+| Session navigateur (cookie httpOnly) | ✓ iron-session | |
+| Login magic link (membres) | ✓ UI + proxy BFF | ✓ allowlist + tokens |
+| Login Google (`@tomcat.eu`, équipe) | ✓ PKCE via BFF | ✓ OAuth broker |
+| OAuth client `society.read` | ✓ client enregistré sur Core | ✓ émet tokens |
 | Permissions & redaction données | | ✓ |
 | Sync HubSpot, Monday, Drive | | ✓ |
 | Read model Postgres | | ✓ |
-| Admin accès / membres (UI) | ✓ | ✓ API `/internal/*` |
+| Admin accès / membres (UI) | ✓ (phase 2 UI) | ✓ API `/internal/*` |
 | Agent IA équipe | consomme | ✓ |
 
-Prod : `https://society.tomcat.eu` → CORS Core. Client service enregistré :
-`society` (`society.read` | `society.write`).
+Prod : `https://society.tomcat.eu` → container BFF Society. Core API séparée.
+Suivi V1 : [society-v1-handoff.md](./society-v1-handoff.md).
+
+Le JWT service `society` + `act_as` reste disponible pour intégrations machine ;
+**le parcours web V1 passe par OAuth opaque + session BFF**, pas par JWT service.
 
 ---
 
 ## 3. Authentification
 
+**Décision V1 (2026-05-25)** : l'auth est **centralisée dans Core** (SSO Tomcat).
+Society est un client OAuth ; il ne signe pas de JWT service.
+
+Suivi implémentation : [society-v1-handoff.md](./society-v1-handoff.md).
+
 ### 3.1 Membres Society (priorité #1)
 
-**Magic link** (ou email + mot de passe si autorisé pour ce membre).
+**Magic link** (allowlist `society_members`).
 
 Flow :
 
-1. Membre saisit email sur Society.
-2. Society vérifie que l'email est **autorisé** (table membres, statut actif).
-3. Society envoie le lien / valide le mot de passe.
-4. Society crée une session et résout le **profil membre** (kind, tier, capabilities, `memberId`).
-5. Appels Core : header `X-Service-Token` avec `sub: society`, scope `society.read`
-   (ou `society.write` si mutation), et claims `act_as` décrivant l'identité effective.
-
-L'auth membre **ne vit pas dans Core**. Core fait confiance au token signé par
-Society (secret partagé `SERVICE_TOKEN_SECRET`).
+1. Membre saisit email sur Society (BFF `/api/auth/magic-link`).
+2. BFF appelle Core `POST /society/auth/magic-link`.
+3. Core vérifie allowlist, envoie le lien (ou expose l'URL en dev).
+4. Membre clique → Society `/auth/verify` → BFF complete + PKCE → Core `/oauth/token`.
+5. Cookie session httpOnly — tokens Core jamais exposés au JS client.
 
 ### 3.2 Équipe Tomcat
 
-**Google OAuth** (`@tomcat.eu`). Society obtient un ID token Google et peut :
+**Google OAuth** (`@tomcat.eu`) via le broker OAuth Core existant :
 
-- appeler Core en **humain** : `Authorization: Bearer <google-id-token>` ;
-- ou déléguer via JWT service + `act_as` avec rôle interne.
+- `GET /oauth/authorize?scope=society.read&…` (PKCE)
+- Identité résolue via table `users`.
 
-Rôle résolu depuis la table `users` (Postgres). Jeremy = `admin` pour `/internal/*`.
+Alternative directe (debug) : `Authorization: Bearer <google-id-token>`.
 
 ### 3.3 Lien personne → identité métier
 
-**À définir** (email dans `investor_records`, table `society_members` dédiée, etc.).
-Society est responsable de cette résolution avant d'appeler Core.
+Email investisseur → `society_members` → `investorId` (FK `investor_records`).
+Admin : `GET/POST /internal/society-members`.
 
 ---
 
@@ -282,7 +286,10 @@ Auth admin : Google `@tomcat.eu` + rôle `admin` en DB (pas JWT service seul).
 | Routes `/society/investors/:id/home`, `/society/portfolio/:id/signals` | ✓ |
 | JWT service `society` + `act_as` | ✓ |
 | Modèle capabilities fine-grained | spec seulement |
-| Table `society_members` + overrides | à créer |
+| Table `society_members` + magic link auth | ✓ V1 |
+| `GET /society/startups` paginé | ✓ V1 |
+| OAuth scope `society.read` | ✓ V1 |
+| Repo BFF `tomcat-society-api` (session, proxy, UI dev) | ✓ V1 |
 | `investor_records` peuplé | à faire |
 | Jeremy en `users` admin | à seed |
 | Monday events / signaux | boards à câbler |
@@ -306,7 +313,9 @@ Auth admin : Google `@tomcat.eu` + rôle `admin` en DB (pas JWT service seul).
 
 | Sujet | Fichier |
 | --- | --- |
-| Routes Society actuelles | `src/api/routes/society.ts`, `src/services/society.ts` |
+| Handoff V1 (BFF, setup dev, checklist) | [society-v1-handoff.md](./society-v1-handoff.md) |
+| Repo BFF Society | `tomcat-society-api` (repo séparé) |
+| Routes Society Core | `src/api/routes/society.ts`, `src/services/society.ts` |
 | Policies | `src/permissions/policies.ts` |
 | Identité | `src/domain/identity.ts`, `src/storage/migrations/pg_003_identity.sql` |
 | Entités | `src/domain/entities.ts` (`ClubTier` → renommer `SocietyTier`) |

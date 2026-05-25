@@ -34,6 +34,9 @@ export const createMcpOauthIdentityResolver = (
     const resolved = await opts.service.resolveAccessToken(token);
     if (!resolved) return undefined;
 
+    const scopes = resolved.scopes.split(/\s+/).filter(Boolean);
+    if (!scopes.includes("mcp:tools")) return undefined;
+
     const email = normalizeEmail(resolved.principalEmail);
     let role: Role;
     let team: string | undefined;

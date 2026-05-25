@@ -23,6 +23,11 @@ import type {
   KnowledgeChunkSearchParams,
   KnowledgeIndexChunkInput,
 } from "../domain/crmMemory.js";
+import type {
+  SocietyMember,
+  StartupBrowsePage,
+  StartupBrowseQuery,
+} from "../domain/society.js";
 
 export type GrepNotesParams = {
   terms: string[];
@@ -93,6 +98,7 @@ export interface CoreStore {
   upsertStartup(startup: Startup): Promise<void>;
   insertStartupIfAbsent(startup: Startup): Promise<boolean>;
   listStartups(): Promise<Startup[]>;
+  browseStartups(query: StartupBrowseQuery): Promise<StartupBrowsePage>;
   listStartupIdsWithNotesMissingDirectoryEntry(): Promise<string[]>;
 
   // Investors (business profile, not Google accounts)
@@ -207,6 +213,13 @@ export interface CoreStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
   getUserByEmail(email: string): Promise<UserRecord | undefined>;
   listUsers(): Promise<UserRecord[]>;
+
+  // Society members (investor allowlist for magic link auth)
+  upsertSocietyMember(member: SocietyMember): Promise<void>;
+  getSocietyMemberByEmail(email: string): Promise<SocietyMember | undefined>;
+  listSocietyMembers(): Promise<SocietyMember[]>;
+  createSocietyMagicLinkToken(email: string, ttlSeconds: number): Promise<string>;
+  consumeSocietyMagicLinkToken(token: string): Promise<string | undefined>;
 
   // MCP OAuth broker (Tomcat Core acts as Authorization Server)
   mcpOauth: McpOAuthStore;

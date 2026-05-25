@@ -123,8 +123,31 @@ sync_keys = {
         "OAUTH_ALLOWED_REDIRECT_URI_PREFIXES",
         "cursor://,https://www.cursor.com/,http://localhost:,https://claude.ai/,https://claude.com/",
     ),
+    "SOCIETY_MAGIC_LINK_VERIFY_BASE_URL": pick("SOCIETY_MAGIC_LINK_VERIFY_BASE_URL"),
+    "SOCIETY_MAGIC_LINK_EXPOSE_IN_RESPONSE": pick(
+        "SOCIETY_MAGIC_LINK_EXPOSE_IN_RESPONSE",
+        "false",
+    ),
+    "SOCIETY_MAGIC_LINK_TTL_SECONDS": pick("SOCIETY_MAGIC_LINK_TTL_SECONDS", "900"),
+    "SOCIETY_MAGIC_LINK_RATE_LIMIT_PER_MINUTE": pick(
+        "SOCIETY_MAGIC_LINK_RATE_LIMIT_PER_MINUTE",
+        "10",
+    ),
+    "RATE_LIMIT_STORE": pick("RATE_LIMIT_STORE", "postgres"),
+    "SOCIETY_BFF_OAUTH_GOOGLE_RATE_LIMIT_PER_MINUTE": pick(
+        "SOCIETY_BFF_OAUTH_GOOGLE_RATE_LIMIT_PER_MINUTE",
+        "30",
+    ),
+    "SOCIETY_BFF_STARTUPS_RATE_LIMIT_PER_MINUTE": pick(
+        "SOCIETY_BFF_STARTUPS_RATE_LIMIT_PER_MINUTE",
+        "120",
+    ),
 }
 public_env.update(sync_keys)
+
+rate_limit_key = pick("RATE_LIMIT_SERVICE_KEY")
+if rate_limit_key:
+    secret_env["RATE_LIMIT_SERVICE_KEY"] = rate_limit_key
 
 webhook_secret = pick("HUBSPOT_WEBHOOK_CLIENT_SECRET")
 if webhook_secret:

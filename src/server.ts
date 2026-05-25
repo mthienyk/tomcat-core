@@ -55,8 +55,13 @@ import { registerHubspotWebhookRoutes } from "./api/routes/hubspotWebhook.js";
 import { registerRawBodyHook } from "./api/rawBody.js";
 import { registerMcpHttpRoutes } from "./mcp/http.js";
 import { registerMcpOauthRoutes } from "./api/routes/mcpOauth.js";
+import { registerSocietyAuthRoutes } from "./api/routes/societyAuth.js";
+import { registerRateLimitInternalRoutes } from "./api/routes/rateLimitInternal.js";
+import { buildRateLimitService } from "./rateLimit/build.js";
 import { McpOAuthService } from "./auth/mcpOauth/service.js";
 import { createMcpOauthIdentityResolver } from "./auth/mcpOauth/tokenResolver.js";
+import { buildSocietyAuthService } from "./auth/societyAuth/service.js";
+import { createSocietyOauthIdentityResolver } from "./auth/societyAuth/tokenResolver.js";
 
 export const buildServer = async (
   config: AppConfig,
@@ -107,6 +112,20 @@ export const buildServer = async (
     app.log.info("CoreStore (Postgres) initialised");
   }
 
+  const rateLimit = buildRateLimitService(config, pgDb);
+  if (config.rateLimit.store === "postgres") {
+    app.log.info("Rate limit store: postgres (distributed)");
+  } else {
+    app.log.warn(
+      "Rate limit store: memory (single-instance only). Set DATABASE_URL for postgres.",
+    );
+  }
+
+  registerRateLimitInternalRoutes(app, {
+    service: rateLimit,
+    serviceKey: config.rateLimit.serviceKey,
+  });
+
   // --- Connectors ---
   const httpConnectors = buildConnectors(config);
   const connectors = coreStore
@@ -135,6 +154,14 @@ export const buildServer = async (
       accessTokenTtlSeconds: oauthBroker.accessTokenTtlSeconds,
       refreshTokenTtlSeconds: oauthBroker.refreshTokenTtlSeconds,
     });
+    resolvers.push(
+      createSocietyOauthIdentityResolver({
+        service: mcpOauthService,
+        store: coreStore,
+        resolveRole: roleResolver,
+        allowedGoogleDomains: config.auth.allowedGoogleDomains,
+      }),
+    );
     resolvers.push(
       createMcpOauthIdentityResolver({
         service: mcpOauthService,
@@ -179,7 +206,10 @@ export const buildServer = async (
 
   // --- Services ---
   const society = buildSocietyService({ connectors });
-  const startups = buildStartupsService({ connectors });
+  const startups = buildStartupsService({
+    connectors,
+    ...(coreStore ? { store: coreStore } : {}),
+  });
   const companyContext = buildCompanyContextService({
     connectors,
     startups,
@@ -377,9 +407,32 @@ export const buildServer = async (
       allowedGoogleDomains: config.auth.allowedGoogleDomains,
       issuerUrl: oauthBroker.issuerUrl,
       allowedRedirectUriPrefixes: oauthBroker.allowedRedirectUriPrefixes,
-      registerRateLimitPerMinute: oauthBroker.registerRateLimitPerMinute,
+      rateLimit,
     });
     app.log.info("MCP OAuth broker enabled at /oauth/* and /.well-known/*");
+  }
+
+  if (
+    mcpOauthService
+    && coreStore
+    && config.auth.societyAuth.magicLinkVerifyBaseUrl
+  ) {
+    const societyAuth = buildSocietyAuthService({
+      store: coreStore,
+      oauth: mcpOauthService,
+      magicLinkTtlSeconds: config.auth.societyAuth.magicLinkTtlSeconds,
+      exposeMagicLinkInResponse: config.auth.societyAuth.exposeMagicLinkInResponse,
+    });
+    registerSocietyAuthRoutes(app, {
+      service: societyAuth,
+      magicLinkVerifyBaseUrl: config.auth.societyAuth.magicLinkVerifyBaseUrl,
+      rateLimit,
+    });
+    app.log.info("Society auth enabled at /society/auth/*");
+  } else if (coreStore && !config.auth.societyAuth.magicLinkVerifyBaseUrl) {
+    app.log.warn(
+      "Society magic link disabled: set SOCIETY_MAGIC_LINK_VERIFY_BASE_URL",
+    );
   }
 
   if (config.auth.googleOAuthClientId || config.auth.allowMockAuth || mcpOauthService) {
@@ -411,7 +464,7 @@ export const buildServer = async (
     app.log.info("MCP Streamable HTTP enabled at /mcp");
   }
 
-  registerSocietyRoutes(app, auth, society);
+  registerSocietyRoutes(app, auth, society, startups);
   registerInternalRoutes(app, auth, boardBrief);
   registerConnectorRoutes(app, auth, startups);
   registerSignalRoutes(app, auth, signalHubService);

@@ -1,9 +1,10 @@
-import type { Identity } from "../domain/identity.js";
+import { effectiveHuman, isInternalRole, type Identity } from "../domain/identity.js";
 import type { Deal, Meeting, Note, Startup } from "../domain/entities.js";
 import { BadRequest } from "../errors/index.js";
 import { canSeeDeal, canSeeNote, canSeeStartup } from "../permissions/policies.js";
-import { redactNoteBody } from "../permissions/redact.js";
+import { redactNoteBody, redactStartup } from "../permissions/redact.js";
 import type { Connectors } from "../connectors/registry.js";
+import type { CoreStore } from "../storage/coreStore.js";
 import {
   isWithinSinceDays,
   matchesAuthorEmail,
@@ -54,8 +55,11 @@ const clampLimit = (limit: number | undefined, fallback: number): number => {
   return Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
 };
 
-export const buildStartupsService = (deps: { connectors: Connectors }) => {
-  const { connectors } = deps;
+export const buildStartupsService = (deps: {
+  connectors: Connectors;
+  store?: CoreStore;
+}) => {
+  const { connectors, store } = deps;
   const visibleStartupsCache = new Map<string, VisibleStartupsCacheEntry>();
 
   const listVisibleStartups = async (caller: Identity): Promise<Startup[]> => {
@@ -147,6 +151,73 @@ export const buildStartupsService = (deps: { connectors: Connectors }) => {
       }
 
       return filtered.slice(0, limit);
+    },
+
+    browseStartups: async (
+      caller: Identity,
+      query: {
+        q?: string;
+        sector?: string;
+        cursor?: string;
+        limit: number;
+      },
+    ): Promise<{
+      items: Startup[];
+      nextCursor: string | undefined;
+      hasMore: boolean;
+    }> => {
+      const human = effectiveHuman(caller);
+      const includeInternalOnly =
+        human !== undefined && isInternalRole(human.role);
+      const limit = clampLimit(query.limit, DEFAULT_ACTIVITY_LIMIT);
+
+      if (store) {
+        const page = await store.browseStartups({
+          q: query.q,
+          sector: query.sector,
+          cursor: query.cursor,
+          limit,
+          includeInternalOnly,
+        });
+        return {
+          items: page.items
+            .filter((startup) => canSeeStartup(caller, startup))
+            .map((startup) => redactStartup(caller, startup)),
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+        };
+      }
+
+      const visible = await listVisibleStartups(caller);
+      let filtered = visible;
+      if (query.q) {
+        const needle = normalize(query.q);
+        filtered = filtered.filter((s) => normalize(s.name).includes(needle));
+      } else if (query.sector) {
+        const sector = query.sector.toLowerCase();
+        filtered = filtered.filter((s) =>
+          s.sectors.some((sec) => sec.toLowerCase() === sector),
+        );
+      }
+
+      let startIndex = 0;
+      if (query.cursor) {
+        const cursorIndex = filtered.findIndex((s) => s.id === query.cursor);
+        startIndex = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+      }
+
+      const slice = filtered
+        .slice(startIndex, startIndex + limit + 1)
+        .map((startup) => redactStartup(caller, startup));
+      const hasMore = slice.length > limit;
+      const items = hasMore ? slice.slice(0, limit) : slice;
+      const last = items[items.length - 1];
+
+      return {
+        items,
+        nextCursor: hasMore && last ? last.id : undefined,
+        hasMore,
+      };
     },
 
     findSimilar: async (

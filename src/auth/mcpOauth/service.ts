@@ -10,7 +10,7 @@ import { sha256Hex, verifyPkceS256 } from "./pkce.js";
 const PENDING_TTL_SECONDS = 600;
 const AUTHORIZATION_CODE_TTL_SECONDS = 60;
 const DEFAULT_SCOPE = "mcp:tools";
-const SUPPORTED_SCOPES = new Set(["mcp:tools"]);
+const SUPPORTED_SCOPES = new Set(["mcp:tools", "society.read"]);
 
 export type McpOAuthServiceOptions = {
   store: McpOAuthStore;

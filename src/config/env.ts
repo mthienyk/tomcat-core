@@ -50,6 +50,31 @@ const EnvSchema = z.object({
     .nonnegative()
     .default(30),
 
+  SOCIETY_MAGIC_LINK_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  SOCIETY_MAGIC_LINK_RATE_LIMIT_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(10),
+  SOCIETY_MAGIC_LINK_VERIFY_BASE_URL: z.string().url().optional(),
+  SOCIETY_MAGIC_LINK_EXPOSE_IN_RESPONSE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+
+  RATE_LIMIT_STORE: z.enum(["memory", "postgres"]).default("postgres"),
+  RATE_LIMIT_SERVICE_KEY: z.string().min(32).optional(),
+  SOCIETY_BFF_OAUTH_GOOGLE_RATE_LIMIT_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(30),
+  SOCIETY_BFF_STARTUPS_RATE_LIMIT_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(120),
+
   SERVICE_TOKEN_SECRET: z
     .string()
     .min(32, "SERVICE_TOKEN_SECRET must be at least 32 chars"),
@@ -167,6 +192,12 @@ export type AppConfig = {
       refreshTokenTtlSeconds: number;
       registerRateLimitPerMinute: number;
     };
+    societyAuth: {
+      magicLinkTtlSeconds: number;
+      magicLinkRateLimitPerMinute: number;
+      magicLinkVerifyBaseUrl: string | undefined;
+      exposeMagicLinkInResponse: boolean;
+    };
   };
     connectors: {
       hubspotToken: string | undefined;
@@ -197,6 +228,12 @@ export type AppConfig = {
   };
   cors: {
     allowedOrigins: string[];
+  };
+  rateLimit: {
+    store: "memory" | "postgres";
+    serviceKey: string | undefined;
+    societyBffOauthGooglePerMinute: number;
+    societyBffStartupsPerMinute: number;
   };
   database: {
     url: string | undefined;
@@ -264,6 +301,14 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
         refreshTokenTtlSeconds: parsed.OAUTH_REFRESH_TOKEN_TTL_SECONDS,
         registerRateLimitPerMinute: parsed.OAUTH_REGISTER_RATE_LIMIT_PER_MINUTE,
       },
+      societyAuth: {
+        magicLinkTtlSeconds: parsed.SOCIETY_MAGIC_LINK_TTL_SECONDS,
+        magicLinkRateLimitPerMinute: parsed.SOCIETY_MAGIC_LINK_RATE_LIMIT_PER_MINUTE,
+        magicLinkVerifyBaseUrl: parsed.SOCIETY_MAGIC_LINK_VERIFY_BASE_URL,
+        exposeMagicLinkInResponse:
+          parsed.NODE_ENV !== "production"
+          && parsed.SOCIETY_MAGIC_LINK_EXPOSE_IN_RESPONSE,
+      },
     },
     connectors: {
       hubspotToken: parsed.HUBSPOT_API_TOKEN,
@@ -294,6 +339,17 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
     },
     cors: {
       allowedOrigins: csv(parsed.CORS_ALLOWED_ORIGINS),
+    },
+    rateLimit: {
+      store:
+        parsed.DATABASE_URL && parsed.RATE_LIMIT_STORE === "postgres"
+          ? "postgres"
+          : "memory",
+      serviceKey: parsed.RATE_LIMIT_SERVICE_KEY,
+      societyBffOauthGooglePerMinute:
+        parsed.SOCIETY_BFF_OAUTH_GOOGLE_RATE_LIMIT_PER_MINUTE,
+      societyBffStartupsPerMinute:
+        parsed.SOCIETY_BFF_STARTUPS_RATE_LIMIT_PER_MINUTE,
     },
     database: {
       url: parsed.DATABASE_URL,

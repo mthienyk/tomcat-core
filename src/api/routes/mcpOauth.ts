@@ -10,6 +10,8 @@ import {
   oauthErrorPage,
   oauthSuccessPage,
 } from "../../auth/mcpOauth/htmlPages.js";
+import { clientIp } from "../clientIp.js";
+import type { RateLimitService } from "../../rateLimit/types.js";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_SCOPES = "openid email profile";
@@ -22,7 +24,7 @@ export type McpOAuthRoutesDeps = {
   allowedGoogleDomains: string[];
   issuerUrl: string;
   allowedRedirectUriPrefixes: string[];
-  registerRateLimitPerMinute: number;
+  rateLimit: RateLimitService;
 };
 
 const RegisterBody = z.object({
@@ -73,37 +75,10 @@ const validateRedirectPrefix = (
   return allowedPrefixes.some((prefix) => uri.startsWith(prefix));
 };
 
-type RateBucket = { count: number; windowStart: number };
-const buildRateLimiter = (limitPerMinute: number) => {
-  const buckets = new Map<string, RateBucket>();
-  return (ip: string): { allowed: boolean; retryAfter: number } => {
-    if (limitPerMinute <= 0) return { allowed: true, retryAfter: 0 };
-    const now = Date.now();
-    const bucket = buckets.get(ip);
-    if (!bucket || now - bucket.windowStart >= 60_000) {
-      buckets.set(ip, { count: 1, windowStart: now });
-      return { allowed: true, retryAfter: 0 };
-    }
-    if (bucket.count >= limitPerMinute) {
-      const retryAfter = Math.ceil((60_000 - (now - bucket.windowStart)) / 1000);
-      return { allowed: false, retryAfter };
-    }
-    bucket.count += 1;
-    return { allowed: true, retryAfter: 0 };
-  };
-};
-
-const clientIp = (req: FastifyRequest): string => {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") return forwarded.split(",")[0]?.trim() ?? "unknown";
-  return req.ip ?? "unknown";
-};
-
 export const registerMcpOauthRoutes = (
   app: FastifyInstance,
   deps: McpOAuthRoutesDeps,
 ): void => {
-  const checkRegisterRate = buildRateLimiter(deps.registerRateLimitPerMinute);
 
   app.get("/.well-known/oauth-authorization-server", async (req, reply) => {
     const base = baseUrlForRequest(req, deps.issuerUrl);
@@ -117,7 +92,7 @@ export const registerMcpOauthRoutes = (
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
-      scopes_supported: ["mcp:tools"],
+      scopes_supported: ["mcp:tools", "society.read"],
       resource: `${base}/mcp`,
     });
   });
@@ -143,7 +118,7 @@ export const registerMcpOauthRoutes = (
 
   app.post("/oauth/register", async (req, reply) => {
     const ip = clientIp(req);
-    const rate = checkRegisterRate(ip);
+    const rate = await deps.rateLimit.consume("oauth.register", `ip:${ip}`);
     if (!rate.allowed) {
       return reply
         .status(429)
