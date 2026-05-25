@@ -68,6 +68,20 @@ export const refineSpreadsheetClassification = (
   return base;
 };
 
+const BP_WORKFLOW_TITLE_PATTERNS = [
+  /\bbp\b/i,
+  /business plan/i,
+  /business-plan/i,
+  /plan financier/i,
+  /pr[ée]visionnel/i,
+  /dsn/i,
+  /payroll|paie|bulletin/i,
+  /pr[êe]t|pret|loan|[ée]ch[ée]ancier|echeancier|emprunt/i,
+];
+
+export const matchesBpWorkflowTitle = (title: string): boolean =>
+  BP_WORKFLOW_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+
 export const rankFounderBpCandidate = (file: ClassifiedDriveFile): number => {
   const t = file.title.toLowerCase();
   let score = file.classification === "founder_bp_xlsx" ? 80 : 40;

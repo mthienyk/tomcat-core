@@ -2,6 +2,7 @@ import { BadRequest } from "../errors/index.js";
 import type { Connectors } from "../connectors/registry.js";
 import {
   classifyBpFilename,
+  matchesBpWorkflowTitle,
   refineSpreadsheetClassification,
   type BpDriveFileClassification,
 } from "./bpClassify.js";
@@ -99,6 +100,7 @@ export const listRankedDriveFilesForTokens = async (
   portfolioCompanyId: string,
   driveTokens: DriveTokenCandidate[] | undefined,
   titleContains: string | undefined,
+  options?: { bpWorkflowTitlesOnly?: boolean },
 ): Promise<{
   files: DriveCompanyFileRef[];
   driveTokenUsed: string;
@@ -113,6 +115,8 @@ export const listRankedDriveFilesForTokens = async (
   if (titleContains?.trim()) {
     const needle = titleContains.trim().toLowerCase();
     files = files.filter((file) => file.title.toLowerCase().includes(needle));
+  } else if (options?.bpWorkflowTitlesOnly) {
+    files = files.filter((file) => matchesBpWorkflowTitle(file.title));
   }
   return {
     files,

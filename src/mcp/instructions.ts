@@ -74,27 +74,27 @@ ${signalHubWorkflowRow}
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |
 | Business Plan (BP) | read_bp_playbook → resolve_entity → assemble_company_finance_pack → restructure_founder_bp → export_business_plan |
 
-## Business Plan (BP) workflows
+## Business Plan (BP) — finance workflow
 
-Call \`read_bp_playbook\` before any BP task. It defines the Tomcat template, three modes
-(transform / generate / hybrid), tab mapping, DSN V1 scope, and benchmark thresholds.
+Call \`read_bp_playbook\` first. **Split roles:**
 
-**Modes (infer from Drive, do not guess):**
+| Layer | Who | Does what |
+| --- | --- | --- |
+| MCP | Tools | Drive discovery, classify inputs, parse spreadsheet tabs, structured draft JSON |
+| Agent | Conversation | Present \`reviewBrief\`, discuss CA/AACE/recrutements, read PDF prêts/DSN via excerpt |
+| Human | Finance reviewer | Validates manualReviewTabs, picks BP scenario if several, explicitly approves export |
+| Export | MCP | \`export_business_plan(confirmed: true)\` only after explicit human approval |
 
-- **transform** (~70%) — founder custom \`.xlsx\` exists; restructure to Tomcat template
-- **generate** (~15%) — only inputs (DSN export, loans, history); fill template from scratch
-- **hybrid** (~15%) — founder BP + fresh payroll/debt inputs to overlay
+**Chain:** \`resolve_entity\` (keep \`canonicalName\` + \`driveTokens\`) → \`assemble_company_finance_pack\`
+→ \`restructure_founder_bp\` → present \`reviewBrief\` → hybrid: \`read_company_document_excerpt\` on debt/DSN
+→ user confirms → \`export_business_plan\` with \`confirmed: true\` and \`companyLabel\`.
 
-**Chain:** playbook → entity → \`assemble_company_finance_pack\` → \`restructure_founder_bp\`
-→ Guillaume review → \`export_business_plan\` (confirmed: true).
-Tab slices: \`draft_bp_tab_debt\`, \`draft_bp_tab_payroll\`, \`draft_bp_tab_revenue\`.
-Always pass \`driveTokens\` from resolve_entity on every BP tool when provided.
-Folder browse: \`resolve_company_drive_folder\` (bp_inputs), \`list_company_documents\`.
-Do not claim a BP is exported until \`export_business_plan\` succeeds with confirmed: true.
+**Agent capabilities to use:** explain draft in French tab-by-tab; reason about revenue model (never keyword-only);
+decode \`xlsxBase64\` and help the user save the file; do not export without explicit ask.
 
-**Pitfalls:** « BP Tomcat » in a filename ≠ canonical template; \`find_latest_deck\` prefers pitch
-decks over financial models; M2 analysis workbooks are not operational BPs.
-AACE / charges d'exploitation and custom revenue patterns require manualReviewTabs review.
+**Not automated (agent + human):** Input Réalisé, AACE/charges d'exploitation, recrutements futurs, generate mode from scratch.
+
+**Pitfalls:** pass \`driveTokens\` on every BP tool; « BP Tomcat » filename ≠ canonical template; multiple BP scenarios on Drive — ask the user.
 
 ## Connectors
 

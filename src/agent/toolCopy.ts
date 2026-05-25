@@ -657,7 +657,7 @@ export const TOOL_DESCRIPTIONS = {
     ],
     limitations: [
       "Static methodology — does not read Drive or produce a BP draft",
-      "Call assemble_company_finance_pack and draft_bp_tab_debt for Drive classification and Financement drafts",
+      "Call assemble_company_finance_pack then restructure_founder_bp — not draft slices alone",
     ],
     sources: ["playbook"],
     access: "confidential",
@@ -666,35 +666,72 @@ export const TOOL_DESCRIPTIONS = {
 
   assemble_company_finance_pack: meta({
     summary:
-      "Classify Drive finance inputs for a portco and return recommendedMode "
-      + "(transform / generate / hybrid) plus founder BP candidate with optional sheet peek.",
+      "Start BP workflow: classify Drive inputs, pick top founder BP, detect transform/hybrid/generate.",
     whenToUse: [
-      "After read_bp_playbook and resolve_entity — start of any BP workflow for Guillaume",
-      "Determine transform vs generate vs hybrid from Drive inventory",
-      "Before draft_bp_tab_debt or restructure_founder_bp (when available)",
-    ],
-    prerequisites: [
-      "portfolioCompanyId from resolve_entity",
-      "read_bp_playbook called first on first BP task for this company",
+      "After read_bp_playbook + resolve_entity — always the first Drive pass for BP",
     ],
     inputTips: [
-      "driveTokens — pass from resolve_entity when HubSpot and Monday names diverge",
-      "titleContains — narrow to « BP » or « Business Plan » for financial models",
-      "peekFounderBpSheets — default true; reads sheet names from top founder xlsx for canonical detection",
+      "driveTokens + companyLabel (canonicalName) from resolve_entity — required when names diverge",
+      "Omit titleContains — auto-matches BP, Business Plan, DSN, loan filenames",
+      "alternateFounderBps — ask the user which scenario if multiple",
     ],
     output: [
-      "ToolRunEnvelope: recommendedMode, modeRationale, founderBpFile, classifiedFiles[], inputSummary",
-      "warnings when inputs missing or canonical tabs already present",
-      "nextSuggestedTools → draft_bp_tab_debt when transform/hybrid",
+      "recommendedMode, founderBpFile, alternateFounderBps[], classifiedFiles[], inputSummary",
     ],
     nextTools: [
-      { name: "draft_bp_tab_debt", when: "recommendedMode is transform or hybrid and founderBpFile is set" },
-      { name: "read_company_document_excerpt", when: "Need to inspect payroll/debt file content" },
-      { name: "resolve_company_drive_folder", when: "Folder path or missing inputs unclear" },
+      { name: "restructure_founder_bp", when: "transform or hybrid with founderBpFile" },
+      { name: "read_company_document_excerpt", when: "hybrid — debt/DSN PDFs to overlay" },
+    ],
+    limitations: ["Generate mode (no founder BP) not automated — agent + user from template"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  restructure_founder_bp: meta({
+    summary:
+      "Primary BP tool: structured draft + coverage + reviewBrief for the agent to present in French.",
+    whenToUse: [
+      "After assemble — main deliverable before export",
+      "Agent reads reviewBrief.agentTasks and confirmBeforeExport with the finance reviewer",
+    ],
+    inputTips: [
+      "companyLabel — pass canonicalName from resolve_entity for readable export filename",
+      "recommendedMode — pass from assemble recommendedMode",
+    ],
+    output: [
+      "draft, coverage (honest editable-tab %), reviewBrief { summaryForChat, confirmBeforeExport, agentTasks }",
+    ],
+    nextTools: [
+      { name: "export_business_plan", when: "Only after the user explicitly asks to export" },
     ],
     limitations: [
-      "Filename classification only except one optional xlsx sheet-name peek",
-      "Does not produce an exportable BP — drafts require draft_* tools",
+      "Does not replace agent judgment on CA/AACE — surfaces assumptions for discussion",
+      "Export blocked if placeholders remain",
+    ],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  export_business_plan: meta({
+    summary:
+      "Export values-only Tomcat xlsx (Financement + RH). Requires confirmed: true after explicit user approval in chat.",
+    whenToUse: [
+      "User explicitly confirmed export after reviewing reviewBrief",
+    ],
+    prerequisites: [
+      "restructure_founder_bp completed without placeholder warnings",
+      "confirmed: true only when the user asked in the conversation",
+    ],
+    inputTips: [
+      "Agent: decode xlsxBase64 and help the user save the file (artifact/download features)",
+      "companyLabel for filename — not raw HubSpot id",
+    ],
+    output: ["xlsxBase64, filename, coverage, agentNextStep"],
+    limitations: [
+      "V1: Financement + RH values only; P&L/trésorerie/BPI keep template formulas — manual relink",
+      "Not uploaded to Drive automatically",
     ],
     sources: ["drive"],
     access: "confidential",
@@ -702,34 +739,29 @@ export const TOOL_DESCRIPTIONS = {
   }),
 
   draft_bp_tab_debt: meta({
+    summary: "Optional slice: Financement draft only. Prefer restructure_founder_bp for full workflow.",
+    whenToUse: ["Debug debt parsing on a specific founder BP tab"],
+    inputTips: ["driveTokens when alternate Drive token used"],
+    limitations: ["Use restructure_founder_bp for the normal BP workflow"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  draft_bp_tab_payroll: meta({
+    summary: "Optional slice: RH draft only. Prefer restructure_founder_bp.",
+    whenToUse: ["Debug payroll parsing on a specific founder BP tab"],
+    limitations: ["Use restructure_founder_bp for the normal BP workflow"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  draft_bp_tab_revenue: meta({
     summary:
-      "Confidential draft: parse founder BP Debt/Loan tab and map instruments to canonical Financement schema. "
-      + "First end-to-end BP slice (benchmark: eSwit). Not exported to Drive.",
-    whenToUse: [
-      "After assemble_company_finance_pack identified a founder BP (transform/hybrid)",
-      "Map eSwit-style Debt tab → Financement instruments 1:1",
-      "Guillaume review before export_business_plan (when available)",
-    ],
-    prerequisites: [
-      "founderBpFileId from assemble_company_finance_pack or list_company_documents",
-      "portfolioCompanyId in scope",
-    ],
-    inputTips: [
-      "sourceTab — default auto-detect (Debt, Loan, Financement); set explicitly if ambiguous",
-      "Review mappingNotes and warnings — principal may be missing in founder models",
-    ],
-    output: [
-      "ToolRunEnvelope: founderInstruments[], financementDraft (Zod-validated), mappingNotes[], status: confidential_draft",
-      "citations with driveFileId of source spreadsheet",
-    ],
-    nextTools: [
-      { name: "read_bp_playbook", when: "Validate Financement 1:1 benchmark thresholds (section: benchmark)" },
-    ],
-    limitations: [
-      "Confidential draft only — never share externally or upload to Drive without approval",
-      "V1 maps instrument rows, not monthly amortization schedules line-by-line",
-      "export_business_plan not yet available — no xlsx output from this tool",
-    ],
+      "Optional slice: CA pattern hint. Agent must still discuss revenue model with the user — not auto-fill CA.",
+    whenToUse: ["Inspect founder revenue tab structure before agent-led CA discussion"],
+    limitations: ["Does not produce export-ready CA — agent validates assumptions with the user"],
     sources: ["drive"],
     access: "confidential",
     approvalRequired: false,

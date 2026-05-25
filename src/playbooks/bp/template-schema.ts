@@ -235,3 +235,49 @@ export type BpFinancementTabDraft = z.infer<typeof BpFinancementTabDraftSchema>;
 export type FounderDebtInstrument = z.infer<typeof FounderDebtInstrumentSchema>;
 export type BpInputPrevisionnel = z.infer<typeof BpInputPrevisionnelSchema>;
 export type BpWorkflowMode = z.infer<typeof BpWorkflowModeSchema>;
+export type BpRevenuePattern = z.infer<typeof BpRevenuePatternSchema>;
+
+export const BpPayrollRoleRowSchema = z.object({
+  role: z.string().min(1),
+  headcount: z.number().optional(),
+  monthlyGross: z.number().optional(),
+  employerCost: z.number().optional(),
+});
+
+export const BpRhTabDraftSchema = z.object({
+  tabSlug: z.literal("rh"),
+  roles: z.array(BpPayrollRoleRowSchema),
+  sourceTab: z.string().optional(),
+});
+
+export const BpCaTabDraftSchema = z.object({
+  tabSlug: z.literal("ca"),
+  revenuePattern: BpRevenuePatternSchema,
+  monthlyNewClientsByOffer: z.array(z.number()).max(4).optional(),
+  assumptions: z.array(z.string()).optional(),
+  sourceTab: z.string().optional(),
+});
+
+export const BpTabMappingSchema = z.object({
+  founderTab: z.string(),
+  canonicalSlug: BpTabSlugSchema,
+  confidence: z.enum(["exact", "alias"]),
+});
+
+export const BpBusinessPlanDraftSchema = z.object({
+  portfolioCompanyId: z.string(),
+  mode: BpWorkflowModeSchema,
+  sourceFounderBpFileId: z.string().optional(),
+  tabMappings: z.array(BpTabMappingSchema),
+  financement: BpFinancementTabDraftSchema.optional(),
+  rh: BpRhTabDraftSchema.optional(),
+  ca: BpCaTabDraftSchema.optional(),
+  manualReviewTabs: z.array(BpTabSlugSchema),
+  unmappedFounderTabs: z.array(z.string()),
+  duplicateFounderTabs: z.array(z.string()).optional(),
+});
+
+export type BpPayrollRoleRow = z.infer<typeof BpPayrollRoleRowSchema>;
+export type BpRhTabDraft = z.infer<typeof BpRhTabDraftSchema>;
+export type BpCaTabDraft = z.infer<typeof BpCaTabDraftSchema>;
+export type BpBusinessPlanDraft = z.infer<typeof BpBusinessPlanDraftSchema>;

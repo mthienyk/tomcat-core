@@ -58,24 +58,26 @@ describe("bpWorkflow service", () => {
     expect(out.data.recommendedMode).toBe("hybrid");
     expect(out.data.inputSummary.founderBp).toBe(1);
     expect(out.data.inputSummary.payroll).toBe(1);
-    expect(out.nextSuggestedTools?.some((t) => t.toolName === "draft_bp_tab_debt")).toBe(true);
+    expect(out.nextSuggestedTools?.some((t) => t.toolName === "restructure_founder_bp")).toBe(
+      true,
+    );
   });
 
-  it("assemble does not suggest draft_bp_tab_debt without debt tab or debt files", async () => {
+  it("assemble suggests restructure without standalone debt draft when no debt inputs", async () => {
     const service = buildBpWorkflowService({
       connectors: {
         drive: {
           listBoardPacksForCompany: vi.fn().mockResolvedValue([
             {
               id: "f1",
-              title: "Seedext Suivi financier.xlsx",
+              title: "Seedext Business Plan.xlsx",
               driveFileId: "f1",
               createdAt: "2026-01-01",
               mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             },
           ]),
           fetchDocumentBinary: vi.fn().mockResolvedValue({
-            name: "Seedext Suivi financier.xlsx",
+            name: "Seedext Business Plan.xlsx",
             mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             buffer: Buffer.from([]),
           }),
@@ -92,6 +94,9 @@ describe("bpWorkflow service", () => {
     });
 
     expect(out.data.recommendedMode).toBe("transform");
+    expect(out.nextSuggestedTools?.some((t) => t.toolName === "restructure_founder_bp")).toBe(
+      true,
+    );
     expect(
       out.nextSuggestedTools?.some((t) => t.toolName === "draft_bp_tab_debt"),
     ).toBe(false);

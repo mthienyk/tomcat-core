@@ -2,9 +2,11 @@ import XLSX from "xlsx";
 import {
   countCanonicalDetectionTabs,
   type BpFinancingInstrumentRow,
+  type BpRevenuePattern,
   FounderDebtInstrumentSchema,
   type FounderDebtInstrument,
 } from "../playbooks/bp/template-schema.js";
+import type { BpPayrollRoleRow } from "../playbooks/bp/template-schema.js";
 
 export type SpreadsheetWorkbookMeta = {
   sheetNames: string[];
@@ -46,12 +48,12 @@ export const resolveDebtSourceTab = (
     const fuzzy = sheetNames.find((n) => n.toLowerCase() === lower);
     if (fuzzy) return fuzzy;
   }
-  const aliases = ["debt", "financial debt", "financement", "loan", "loans", "bnp loan"];
+  const aliases = ["bnp loan", "debt", "financial debt", "financement", "loan", "loans"];
   for (const alias of aliases) {
     const hit = sheetNames.find((n) => n.toLowerCase() === alias);
     if (hit) return hit;
   }
-  return sheetNames.find((n) => /debt|loan|financement/i.test(n));
+  return sheetNames.find((n) => /\b(debt|loan)\b|financement|bnp loan/i.test(n));
 };
 
 export const workbookHasDebtSourceTab = (
@@ -198,3 +200,173 @@ export const mapFounderDebtToFinancement = (
     notes,
   };
 };
+
+const PAYROLL_TAB_ALIASES = [
+  "bp-people costs",
+  "hyp-people",
+  "people costs",
+  "staff costs",
+  "payroll",
+  "rh",
+];
+
+export const resolvePayrollSourceTab = (
+  sheetNames: readonly string[],
+  preferred?: string,
+): string | undefined => {
+  if (preferred) {
+    const exact = sheetNames.find((n) => n === preferred);
+    if (exact) return exact;
+  }
+  for (const alias of PAYROLL_TAB_ALIASES) {
+    const hit = sheetNames.find((n) => n.toLowerCase() === alias);
+    if (hit) return hit;
+  }
+  return sheetNames.find((n) => /payroll|people costs?|staff costs?|\brh\b/i.test(n));
+};
+
+export const workbookHasPayrollSourceTab = (
+  sheetNames: readonly string[],
+): boolean => resolvePayrollSourceTab(sheetNames) !== undefined;
+
+const isNumericCell = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+export const parseFounderPayrollTab = (
+  wb: XLSX.WorkBook,
+  tabName: string,
+): BpPayrollRoleRow[] => {
+  const ws = wb.Sheets[tabName];
+  if (!ws) return [];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
+  const roles: BpPayrollRoleRow[] = [];
+
+  for (const row of rows) {
+    const label = cellText(row[0]) || cellText(row[1]);
+    if (!label || label.length < 2) continue;
+    const lower = label.toLowerCase();
+    if (/^nb$|^total|^management team|^sales team$/i.test(lower)) continue;
+
+    let headcount: number | undefined;
+    let monthlyGross: number | undefined;
+    let employerCost: number | undefined;
+
+    for (let col = 1; col < Math.min(row.length, 16); col += 1) {
+      const value = row[col];
+      if (!isNumericCell(value)) continue;
+      if (value <= 50 && headcount === undefined && Number.isInteger(value)) {
+        headcount = value;
+        continue;
+      }
+      if (value >= 500 && employerCost === undefined) {
+        employerCost = value;
+        continue;
+      }
+      if (value >= 100 && monthlyGross === undefined) {
+        monthlyGross = value;
+      }
+    }
+
+    if (headcount !== undefined || monthlyGross !== undefined || employerCost !== undefined) {
+      roles.push({
+        role: label,
+        ...(headcount !== undefined ? { headcount } : {}),
+        ...(monthlyGross !== undefined ? { monthlyGross } : {}),
+        ...(employerCost !== undefined ? { employerCost } : {}),
+      });
+    }
+  }
+
+  return roles.slice(0, 40);
+};
+
+export const resolveRevenueSourceTab = (
+  sheetNames: readonly string[],
+  preferred?: string,
+): string | undefined => {
+  if (preferred) {
+    const exact = sheetNames.find((n) => n === preferred);
+    if (exact) return exact;
+  }
+  const aliases = ["bp-revenues", "hyp-revenues", "revenues", "revenue", "mrr", "ca"];
+  for (const alias of aliases) {
+    const hit = sheetNames.find((n) => n.toLowerCase() === alias);
+    if (hit) return hit;
+  }
+  return sheetNames.find((n) => /revenue|mrr|\bca\b/i.test(n));
+};
+
+export const workbookHasRevenueSourceTab = (
+  sheetNames: readonly string[],
+): boolean => resolveRevenueSourceTab(sheetNames) !== undefined;
+
+export const inferRevenuePatternFromSheet = (
+  wb: XLSX.WorkBook,
+  tabName: string,
+): { pattern: BpRevenuePattern; assumptions: string[] } => {
+  const ws = wb.Sheets[tabName];
+  const assumptions: string[] = [];
+  if (!ws) {
+    return { pattern: "custom", assumptions: ["Revenue tab empty or unreadable."] };
+  }
+
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
+  const flatText = rows
+    .flat()
+    .map((cell) => cellText(cell).toLowerCase())
+    .join(" ");
+
+  if (/usage|token|api call|consommation/.test(flatText)) {
+    assumptions.push("Usage-based signals in tab labels — agent should validate with the user.");
+    return { pattern: "usage_based", assumptions };
+  }
+
+  if (/annual|annuel|12 mois|facturation annuelle|yearly/.test(flatText)) {
+    assumptions.push("Annual billing labels detected — Claude should confirm recognition rules.");
+    return { pattern: "annual_subscription", assumptions };
+  }
+
+  const monthHeaderCount = (rows[0] ?? []).filter((cell) =>
+    /jan|feb|mar|avr|mai|jun|jul|ao[ûu]|sep|oct|nov|d[ée]c|\d{4}/i.test(cellText(cell)),
+  ).length;
+
+  if (monthHeaderCount >= 6) {
+    assumptions.push(`${String(monthHeaderCount)} month-like columns — default MRR template likely fits.`);
+    return { pattern: "monthly_mrr_multi_offer", assumptions };
+  }
+
+  assumptions.push("Structure unclear — agent must discuss billing model with the user before export.");
+  return { pattern: "custom", assumptions };
+};
+
+export const parseFounderRevenueTab = (
+  wb: XLSX.WorkBook,
+  tabName: string,
+): { pattern: BpRevenuePattern; monthlyNewClientsByOffer: number[]; assumptions: string[] } => {
+  const { pattern, assumptions } = inferRevenuePatternFromSheet(wb, tabName);
+  const ws = wb.Sheets[tabName];
+  if (!ws) {
+    return { pattern, monthlyNewClientsByOffer: [], assumptions };
+  }
+
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
+  const monthlyNewClientsByOffer: number[] = [];
+
+  for (const row of rows) {
+    const label = cellText(row[0]).toLowerCase();
+    if (!/client|offre|offer|new/.test(label)) continue;
+    for (let col = 1; col < Math.min(row.length, 8); col += 1) {
+      const value = row[col];
+      if (isNumericCell(value) && value >= 0 && value < 10_000) {
+        monthlyNewClientsByOffer.push(value);
+        if (monthlyNewClientsByOffer.length >= 4) break;
+      }
+    }
+    if (monthlyNewClientsByOffer.length > 0) break;
+  }
+
+  return { pattern, monthlyNewClientsByOffer, assumptions };
+};
+
+export const writeWorkbookToBuffer = (wb: XLSX.WorkBook): Buffer =>
+  XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;

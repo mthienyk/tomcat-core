@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   classifyBpFilename,
   inferBpWorkflowMode,
+  matchesBpWorkflowTitle,
   refineSpreadsheetClassification,
 } from "../../src/services/bpClassify.js";
 
 describe("bpClassify", () => {
+  it("matches Business Plan titles without literal BP token", () => {
+    expect(matchesBpWorkflowTitle("20260106_Webyn_Business Plan.xlsx")).toBe(true);
+  });
+
   it("classifies founder BP xlsx vs analysis workbooks", () => {
     expect(classifyBpFilename("eSwit BP Tomcat.xlsx")).toBe("tomcat_labeled");
     expect(

@@ -18,7 +18,7 @@ Construire un **MCP opinionné** pour Tomcat : des tools orientés tâches (pas 
 
 Principe clé : **resolve first** (`resolve_entity`) avant les reads ciblés. Outputs structurés via `ToolRunEnvelope`.
 
-**Business Plan (Guillaume)** : appeler **`read_bp_playbook` en premier** — Claude n'a pas la méthode en mémoire ; le playbook + descriptions tools l'éduquent.
+**Business Plan (finance)** : appeler **`read_bp_playbook` en premier** — l'agent n'a pas la méthode en mémoire ; le playbook + descriptions tools l'éduquent.
 
 ---
 

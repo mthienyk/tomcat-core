@@ -544,6 +544,7 @@ export const buildCompanyContextService = (deps: {
         driveFileId: string;
         maxChars: number;
         charOffset?: number | undefined;
+        driveTokens?: DriveTokenCandidate[];
       },
     ): Promise<ReadCompanyDocumentExcerptOutput> => {
       const warnings: string[] = [];
@@ -553,6 +554,7 @@ export const buildCompanyContextService = (deps: {
         connectors.drive,
         args.portfolioCompanyId,
         args.driveFileId,
+        args.driveTokens,
       );
 
       const MIN_WINDOW = 512;

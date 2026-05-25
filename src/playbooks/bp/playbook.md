@@ -1,6 +1,6 @@
 # Tomcat Business Plan (BP) Playbook
 
-Methodology for Guillaume (CFO Partner) and finance workflows at Tomcat.
+Methodology for Tomcat finance BP workflows.
 Call `read_bp_playbook` before any BP generation or restructuring task.
 
 ## Goal
@@ -8,7 +8,18 @@ Call `read_bp_playbook` before any BP generation or restructuring task.
 Produce a **Tomcat-standard financial BP** (Excel deliverable) from what exists in Drive:
 DSN/payroll exports, loan schedules, founder business plans, accounting history.
 
-Target: ~90% auto-fill. Guillaume validates before export to the founder or board.
+Target: auto-fill Financement + RH where parsing is reliable (~50% of editable tabs V1).
+The finance reviewer validates CA, AACE, recrutements and approves export before the xlsx is written.
+
+## Agent + MCP role split
+
+| Layer | Who | Does what |
+| --- | --- | --- |
+| MCP | Tools | Drive discovery, classify inputs, parse spreadsheet tabs, structured draft JSON |
+| Agent | Conversation | Present `reviewBrief`, discuss CA/AACE/recrutements in French, read PDF prêts/DSN via excerpt, decode `xlsxBase64` for download |
+| Human | Finance reviewer | Validates `manualReviewTabs`, picks BP scenario if several on Drive, explicitly approves export |
+
+**Use the agent's conversation and file capabilities** — do not try to auto-fill judgment tabs (CA, AACE) or export without explicit human approval.
 
 ## Canonical template (reference)
 
@@ -35,45 +46,49 @@ does **not** mean the canonical template was used.
 
 ## Three workflow modes (same engine, different entry)
 
-| Mode | When | Drive signals | Primary tool (planned) |
+| Mode | When | Drive signals | Primary tool |
 | --- | --- | --- | --- |
-| **transform** | Founder already has a usable BP | `.xlsx` with custom tabs (Debt, Revenue, Payroll…) and **no** canonical tabs | `restructure_founder_bp` |
-| **generate** | No usable BP; only raw inputs | DSN/payroll export, loan PDF, accounting history; stub or empty BP | `draft_business_plan` |
-| **hybrid** | Founder BP exists **and** fresh inputs to overlay | Custom BP + recent DSN or loan schedule | transform then refresh specific tabs |
+| **transform** | Founder already has a usable BP | `.xlsx` with custom tabs (Debt, Revenue, Payroll…) | `restructure_founder_bp` |
+| **generate** | No usable BP; only raw inputs | DSN/payroll export, loan PDF, accounting history | Agent + user from template (`draft_business_plan` planned) |
+| **hybrid** | Founder BP exists **and** fresh inputs to overlay | Custom BP + recent DSN or loan schedule | `restructure_founder_bp` then `read_company_document_excerpt` on debt/DSN |
 
 **Estimated mix:** ~70% transform, ~15% generate, ~15% hybrid.
 
-Auto-detection (planned in `assemble_company_finance_pack`):
+Auto-detection in `assemble_company_finance_pack`:
 
-- `founderBpFileId` present + canonical tabs absent → **transform**
-- no founder BP + payroll/debt inputs present → **generate**
-- both → **hybrid** (transform base, overlay RH from DSN, Financement from loan docs)
-
-Until orchestrator tools ship, infer mode manually from Drive inventory and follow the chain below.
+- founder BP spreadsheet present → **transform** or **hybrid** (if payroll/debt inputs too)
+- no founder BP + payroll/debt inputs present → **generate** (not automated — warning returned)
+- neither → **generate** with missing-input warning
 
 ## Tool chain
 
-### Available today
+### Primary chain
 
-1. `resolve_entity` — company ids + drive token candidates
-2. `resolve_company_drive_folder` — `purpose: "bp_inputs"` → folder path, present/missing inputs
-3. `list_company_documents` — flat search; pass `driveTokens[]`, filter `titleContains: "BP"`
-4. `read_company_document_excerpt` — read spreadsheet/text exports (not PDF scans)
-5. `read_bp_playbook` — this document
-6. `assemble_company_finance_pack` — classify Drive inputs; return `recommendedMode`
-7. `draft_bp_tab_debt` — confidential Financement draft from founder Debt tab
+1. `read_bp_playbook` — this document
+2. `resolve_entity` — company ids + `driveTokens` + `canonicalName` (use as `companyLabel`)
+3. `assemble_company_finance_pack` — classify Drive inputs; return `recommendedMode`, `founderBpFile`
+4. `restructure_founder_bp` — structured draft + `reviewBrief` + honest `coverage.autoFillPct`
+5. Agent presents brief to the finance reviewer; hybrid: `read_company_document_excerpt` on debt/DSN PDFs
+6. User approves export → `export_business_plan(confirmed: true)` → `xlsxBase64`
 
-### Planned (not yet callable)
+### Supporting tools
 
 | Tool | Role |
 | --- | --- |
-| `restructure_founder_bp` | Map all founder tabs → canonical template (transform) |
-| `draft_business_plan` | Fill template from structured inputs (generate) |
-| `draft_bp_tab_payroll` | RH tab from structured payroll input |
-| `draft_bp_tab_revenue` | CA tab (MRR / usage / annual patterns) |
-| `export_business_plan` | Write `.xlsx` (values only V1); **requires user approval** |
+| `resolve_company_drive_folder` | `purpose: "bp_inputs"` → folder path, present/missing inputs |
+| `list_company_documents` | flat search; pass `driveTokens[]`; omit narrow `titleContains` — assemble auto-filters |
+| `read_company_document_excerpt` | read spreadsheet/text exports; PDF prêts/DSN in hybrid mode |
+| `draft_bp_tab_debt` | debug slice — Financement only (prefer `restructure_founder_bp`) |
+| `draft_bp_tab_payroll` | debug slice — RH only |
+| `draft_bp_tab_revenue` | CA pattern hint — agent still validates with the user |
 
-**Do not invent tool names or claim a draft exists until `export_business_plan` succeeds.**
+### Planned
+
+| Tool | Role |
+| --- | --- |
+| `draft_business_plan` | Fill template from structured inputs only (generate mode, ~15% cases) |
+
+**Do not claim a BP is export-ready until `export_business_plan` succeeds with `confirmed: true`.**
 
 ## Founder tab → canonical mapping
 
@@ -137,16 +152,17 @@ Benchmark companies: **eSwit** (transform), **Yuccan** or **Webyn** (hybrid).
 
 ## Confidentiality & approval
 
-- `draft_*` tools → confidential drafts, not shared externally
-- `export_business_plan` → **approval required**; include diff vs existing Drive BP
-- Audit trail on reads of DSN/debt sources
+- `draft_*` and `restructure_founder_bp` → confidential drafts, not shared externally
+- `export_business_plan` → requires explicit user approval in chat (`confirmed: true`); agent decodes `xlsxBase64` for download — not uploaded to Drive automatically
+- V1 export: **values only** on Financement + RH; P&L/trésorerie/BPI keep template formulas for manual relink
+- Placeholders block export until restructure is clean
 - Never publish or upload to Drive without explicit user confirmation
 
 ## Common mistakes (orchestrator)
 
 1. Assuming « BP Tomcat » in the filename means canonical template — it usually does not
 2. Skipping `resolve_entity` when the company name is ambiguous (e.g. « Incom » matches Fincome)
-3. Using `find_latest_deck` when the user needs the **financial model** — prefer `list_company_documents` with `titleContains: "BP"`
+3. Using `find_latest_deck` when the user needs the **financial model** — prefer `assemble_company_finance_pack` (auto-filters BP titles)
 4. Treating M2 analysis workbooks (Supply Finder synthèse) as operational BPs
 5. Promising formula-linked Excel in V1 — **V1 export is values only**; formulas relink in V2
 

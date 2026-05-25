@@ -249,6 +249,7 @@ const ReadCompanyDocumentExcerptArgs = z
     driveFileId: z.string().min(1),
     maxChars: z.number().int().positive().max(120_000).optional(),
     charOffset: z.number().int().min(0).max(2_000_000).optional(),
+    driveTokens: DriveTokenCandidatesArg,
   })
   .strict();
 
@@ -358,19 +359,82 @@ const AssembleCompanyFinancePackArgs = z
   .object({
     portfolioCompanyId: z.string().min(1).optional(),
     driveTokens: DriveTokenCandidatesArg,
+    companyLabel: z.string().min(1).optional(),
     titleContains: z.string().min(1).optional(),
     documentLimit: z.number().int().positive().max(80).optional(),
     peekFounderBpSheets: z.boolean().optional(),
   })
   .strict();
 
-const DraftBpTabDebtArgs = z
+const BpFounderSpreadsheetArgs = z
   .object({
     portfolioCompanyId: z.string().min(1).optional(),
     founderBpFileId: z.string().min(1),
     sourceTab: z.string().min(1).optional(),
+    driveTokens: DriveTokenCandidatesArg,
+    companyLabel: z.string().min(1).optional(),
   })
   .strict();
+
+const RestructureFounderBpArgs = z
+  .object({
+    portfolioCompanyId: z.string().min(1).optional(),
+    founderBpFileId: z.string().min(1),
+    recommendedMode: z.enum(["transform", "generate", "hybrid"]).optional(),
+    driveTokens: DriveTokenCandidatesArg,
+    companyLabel: z.string().min(1).optional(),
+  })
+  .strict();
+
+const ExportBusinessPlanArgs = z
+  .object({
+    portfolioCompanyId: z.string().min(1).optional(),
+    founderBpFileId: z.string().min(1),
+    confirmed: z.boolean(),
+    recommendedMode: z.enum(["transform", "generate", "hybrid"]).optional(),
+    driveTokens: DriveTokenCandidatesArg,
+    companyLabel: z.string().min(1).optional(),
+  })
+  .strict();
+
+const DraftBpTabDebtArgs = BpFounderSpreadsheetArgs;
+
+const buildBpFounderSpreadsheetCallArgs = (
+  args: z.infer<typeof BpFounderSpreadsheetArgs>,
+) => ({
+  ...(args.portfolioCompanyId !== undefined
+    ? { portfolioCompanyId: args.portfolioCompanyId }
+    : {}),
+  founderBpFileId: args.founderBpFileId,
+  ...(args.sourceTab !== undefined ? { sourceTab: args.sourceTab } : {}),
+  ...(args.driveTokens !== undefined ? { driveTokens: args.driveTokens } : {}),
+  ...(args.companyLabel !== undefined ? { companyLabel: args.companyLabel } : {}),
+});
+
+const buildRestructureFounderBpCallArgs = (
+  args: z.infer<typeof RestructureFounderBpArgs>,
+) => ({
+  ...(args.portfolioCompanyId !== undefined
+    ? { portfolioCompanyId: args.portfolioCompanyId }
+    : {}),
+  founderBpFileId: args.founderBpFileId,
+  ...(args.recommendedMode !== undefined ? { recommendedMode: args.recommendedMode } : {}),
+  ...(args.driveTokens !== undefined ? { driveTokens: args.driveTokens } : {}),
+  ...(args.companyLabel !== undefined ? { companyLabel: args.companyLabel } : {}),
+});
+
+const buildExportBusinessPlanCallArgs = (
+  args: z.infer<typeof ExportBusinessPlanArgs>,
+) => ({
+  ...(args.portfolioCompanyId !== undefined
+    ? { portfolioCompanyId: args.portfolioCompanyId }
+    : {}),
+  founderBpFileId: args.founderBpFileId,
+  confirmed: args.confirmed,
+  ...(args.recommendedMode !== undefined ? { recommendedMode: args.recommendedMode } : {}),
+  ...(args.driveTokens !== undefined ? { driveTokens: args.driveTokens } : {}),
+  ...(args.companyLabel !== undefined ? { companyLabel: args.companyLabel } : {}),
+});
 
 type StartupSelectionArgs = {
   startupId?: string | undefined;
@@ -753,6 +817,7 @@ export const AGENT_TOOL_REGISTRY = [
         driveFileId: args.driveFileId,
         maxChars: args.maxChars ?? 8_000,
         charOffset: args.charOffset,
+        ...(args.driveTokens !== undefined ? { driveTokens: args.driveTokens } : {}),
       }),
   }),
   defineAgentTool({
@@ -1001,6 +1066,7 @@ export const AGENT_TOOL_REGISTRY = [
           ? { portfolioCompanyId: args.portfolioCompanyId }
           : {}),
         ...(args.driveTokens !== undefined ? { driveTokens: args.driveTokens } : {}),
+        ...(args.companyLabel !== undefined ? { companyLabel: args.companyLabel } : {}),
         ...(args.titleContains !== undefined ? { titleContains: args.titleContains } : {}),
         ...(args.documentLimit !== undefined ? { documentLimit: args.documentLimit } : {}),
         ...(args.peekFounderBpSheets !== undefined
@@ -1019,13 +1085,59 @@ export const AGENT_TOOL_REGISTRY = [
     approvalRequired: false,
     inputSchema: DraftBpTabDebtArgs,
     execute: async ({ services, caller, args }) =>
-      services.bpWorkflow.draftBpTabDebt(caller, {
-        ...(args.portfolioCompanyId !== undefined
-          ? { portfolioCompanyId: args.portfolioCompanyId }
-          : {}),
-        founderBpFileId: args.founderBpFileId,
-        ...(args.sourceTab !== undefined ? { sourceTab: args.sourceTab } : {}),
-      }),
+      services.bpWorkflow.draftBpTabDebt(caller, buildBpFounderSpreadsheetCallArgs(args)),
+  }),
+  defineAgentTool({
+    name: "draft_bp_tab_payroll",
+    title: "Draft BP RH Tab",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.draft_bp_tab_payroll),
+
+    labels: ["drive", "finance", "bp", "draft"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: BpFounderSpreadsheetArgs,
+    execute: async ({ services, caller, args }) =>
+      services.bpWorkflow.draftBpTabPayroll(caller, buildBpFounderSpreadsheetCallArgs(args)),
+  }),
+  defineAgentTool({
+    name: "draft_bp_tab_revenue",
+    title: "Draft BP CA Tab",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.draft_bp_tab_revenue),
+
+    labels: ["drive", "finance", "bp", "draft"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: BpFounderSpreadsheetArgs,
+    execute: async ({ services, caller, args }) =>
+      services.bpWorkflow.draftBpTabRevenue(caller, buildBpFounderSpreadsheetCallArgs(args)),
+  }),
+  defineAgentTool({
+    name: "restructure_founder_bp",
+    title: "Restructure Founder BP",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.restructure_founder_bp),
+
+    labels: ["drive", "finance", "bp", "draft"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: RestructureFounderBpArgs,
+    execute: async ({ services, caller, args }) =>
+      services.bpWorkflow.restructureFounderBp(caller, buildRestructureFounderBpCallArgs(args)),
+  }),
+  defineAgentTool({
+    name: "export_business_plan",
+    title: "Export Business Plan",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.export_business_plan),
+
+    labels: ["drive", "finance", "bp", "export"],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: ExportBusinessPlanArgs,
+    execute: async ({ services, caller, args }) =>
+      services.bpWorkflow.exportBusinessPlan(caller, buildExportBusinessPlanCallArgs(args)),
   }),
   // --- Signal Hub tools ---
 
