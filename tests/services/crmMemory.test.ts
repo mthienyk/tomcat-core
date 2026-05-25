@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { noteContentHash } from "../../src/services/crmMemory/contentHash.js";
+import {
+  noteContentHash,
+  noteNeedsSemanticIndex,
+} from "../../src/services/crmMemory/contentHash.js";
 import { buildSemanticCardSystemPrompt } from "../../src/prompts/crmMemory/prompts.js";
 import { resolveCrmMemorySemanticLlm } from "../../src/services/crmMemory/semanticLlm.js";
 import { buildLlmRegistry } from "../../src/llm/registry.js";
@@ -36,6 +39,24 @@ describe("crmMemory contentHash", () => {
 
     expect(first).toBe(second);
     expect(first).not.toBe(third);
+  });
+
+  it("detects stale semantic index hashes", () => {
+    const body = "M1 — strong team. ".repeat(8);
+    expect(
+      noteNeedsSemanticIndex({
+        body,
+        startupId: "42",
+        semanticIndexHash: noteContentHash(body),
+      }),
+    ).toBe(false);
+    expect(
+      noteNeedsSemanticIndex({
+        body,
+        startupId: "42",
+        semanticIndexHash: "stale-hash",
+      }),
+    ).toBe(true);
   });
 });
 

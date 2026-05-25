@@ -7,6 +7,7 @@ import {
 } from "../domain/syncQueue.js";
 import type { CoreStore } from "../storage/coreStore.js";
 import type { Connectors } from "../connectors/registry.js";
+import { ensureHubspotStartupForCompany } from "./ensureHubspotStartup.js";
 
 export type HubspotActivitySyncResult = {
   companyId: string;
@@ -14,6 +15,7 @@ export type HubspotActivitySyncResult = {
   notes: number;
   meetings: number;
   notesFingerprint: string;
+  startupEnsure?: Awaited<ReturnType<typeof ensureHubspotStartupForCompany>>;
   skipped?: boolean;
 };
 
@@ -39,6 +41,12 @@ export const syncHubspotCompanyActivity = async (input: {
 }): Promise<HubspotActivitySyncResult> => {
   const { store, connectors, companyId, hubspotModifiedAt } = input;
 
+  const startupEnsure = await ensureHubspotStartupForCompany({
+    store,
+    connectors,
+    companyId,
+  });
+
   if (hubspotModifiedAt) {
     const existing = await store.getHubspotCompanySyncState(companyId);
     if (
@@ -51,6 +59,7 @@ export const syncHubspotCompanyActivity = async (input: {
         notes: existing.notesCount,
         meetings: existing.meetingsCount,
         notesFingerprint: existing.notesFingerprint ?? "",
+        startupEnsure,
         skipped: true,
       };
     }
@@ -86,6 +95,7 @@ export const syncHubspotCompanyActivity = async (input: {
     notes: noteList.length,
     meetings: meetingList.length,
     notesFingerprint,
+    startupEnsure,
   };
 };
 

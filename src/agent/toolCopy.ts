@@ -100,7 +100,7 @@ export const TOOL_DESCRIPTIONS = {
     limitations: [
       "Similarity is sector-based today, not semantic deck analysis",
       "Only startups visible to the caller ACL",
-      "Use find_similar_notes (planned) for cross-segment semantic memory",
+      "Use find_similar_cases for cross-segment semantic memory",
     ],
     sources: ["hubspot"],
     access: "confidential",

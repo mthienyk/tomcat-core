@@ -152,4 +152,76 @@ describe("similarCases service", () => {
       true,
     );
   });
+
+  it("returns empty results when sector filter matches no startups", async () => {
+    const searchKnowledgeChunks = vi.fn();
+    const service = buildSimilarCasesService({
+      store: {
+        countIndexedKnowledgeChunks: vi.fn().mockResolvedValue(12),
+        searchKnowledgeChunks,
+        getNoteById: vi.fn(),
+      } as never,
+      startups: {
+        searchStartups: vi.fn(async (_caller, query) => {
+          if (query.sector) return [];
+          if (query.startupId === "hs_ref") return [refStartup];
+          return [];
+        }),
+        listAccessibleNotes: vi.fn().mockResolvedValue([]),
+      } as never,
+      embeddings: {
+        model: "text-embedding-3-small",
+        dimensions: 1536,
+        embed: vi.fn(),
+      },
+      hyde: {
+        generateHydeQueries: vi.fn(),
+      },
+    });
+
+    const result = await service.findSimilarCases(caller, {
+      startupId: "hs_ref",
+      sector: "nonexistent-vertical",
+    });
+
+    expect(result.data.matchCount).toBe(0);
+    expect(result.warnings.some((w) => w.code === "NO_SECTOR_MATCHES")).toBe(true);
+    expect(searchKnowledgeChunks).not.toHaveBeenCalled();
+  });
+
+  it("rejects note anchors the caller cannot read", async () => {
+    const service = buildSimilarCasesService({
+      store: {
+        countIndexedKnowledgeChunks: vi.fn().mockResolvedValue(12),
+        searchKnowledgeChunks: vi.fn(),
+        getNoteById: vi.fn().mockResolvedValue({
+          id: "note_secret",
+          startupId: "hs_peer",
+          authorEmail: "elie.dupredesaintmaur@tomcat.eu",
+          body: "Confidential M1 note",
+          sensitivity: "confidential",
+          createdAt: "2024-03-01T10:00:00Z",
+          source: { system: "hubspot", externalId: "note_secret" },
+        }),
+      } as never,
+      startups: {
+        searchStartups: vi.fn(),
+        listAccessibleNotes: vi.fn(),
+      } as never,
+      embeddings: {
+        model: "text-embedding-3-small",
+        dimensions: 1536,
+        embed: vi.fn(),
+      },
+      hyde: {
+        generateHydeQueries: vi.fn(),
+      },
+    });
+
+    await expect(
+      service.findSimilarCases(caller, { noteId: "note_secret" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
 });

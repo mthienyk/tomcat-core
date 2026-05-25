@@ -1,45 +1,19 @@
 import { ConnectorFailed, ConnectorNotConfigured, CoreError } from "../errors/index.js";
-import type {
-  Deal,
-  Meeting,
-  Note,
-  NoteSensitivity,
-  Sector,
-  Stage,
-  Startup,
-} from "../domain/entities.js";
+import type { Deal, Meeting, Note, NoteSensitivity } from "../domain/entities.js";
 import type { HubspotConnector } from "./types.js";
 import { createHttpClient } from "./http.js";
+import {
+  HUBSPOT_STARTUP_DIRECTORY_PROPERTIES,
+  isHubspotInvestorCompany,
+  mapHubspotCompanyToStartup,
+} from "./hubspotCompanyMapping.js";
 
 const HUBSPOT_BASE = "https://api.hubapi.com";
-
-// Tomcat's "Verticales" custom field → domain Sector
-const SECTOR_MAP: Partial<Record<string, Sector>> = {
-  "Future of Work": "saas",
-  "Impact / Tech for good": "climate",
-  "PropTech": "marketplace",
-  "Consumer Engagement": "consumer",
-  "IT, Cyber & IA": "deeptech",
-  "Future of Finance": "fintech",
-  "Autres": "other",
-};
-
-// stade_d_intervention → domain Stage
-const STAGE_MAP: Partial<Record<string, Stage>> = {
-  Seed: "seed",
-  "Série A": "series_a",
-  "Série B": "series_b",
-};
 
 // HubSpot mixes startups and investors in the same company object type.
 // The team plans to reorganize. Until then, filter by startup-relevant lifecycle stages
 // and post-filter companies explicitly tagged as investors via type_d_entreprise.
 const STARTUP_LIFECYCLE_STAGES = ["opportunity", "customer", "evangelist", "98121635"];
-const INVESTOR_COMPANY_TYPES = new Set([
-  "Investisseur Business Angel",
-  "Investisseur VC / FO",
-  "INVESTISSEUR",
-]);
 
 // HubSpot custom deal stage IDs (fetched from pipeline /crm/v3/pipelines/deals/default)
 const WIN_STAGES = new Set(["98068834", "1056771923"]); // Win, TS Signée
@@ -53,11 +27,6 @@ function mapDealStatus(stageId: string): Deal["status"] {
   if (LOST_STAGES.has(stageId)) return "lost";
   if (PASSED_STAGES.has(stageId)) return "passed";
   return "screening";
-}
-
-function mapVisibilityTier(lifecycle: string | null | undefined): Startup["visibilityTier"] {
-  if (lifecycle === "customer") return "shared_with_investors";
-  return "internal_only";
 }
 
 function stripHtml(html: string): string {
@@ -92,6 +61,8 @@ function chunk<T>(arr: T[], size: number): T[][] {
 export const createUnconfiguredHubspotConnector = (): HubspotConnector => ({
   listStartups: () =>
     Promise.reject(ConnectorNotConfigured("hubspot", "listStartups")),
+  getStartupById: () =>
+    Promise.reject(ConnectorNotConfigured("hubspot", "getStartupById")),
   listDealsForStartup: () =>
     Promise.reject(ConnectorNotConfigured("hubspot", "listDealsForStartup")),
   listMeetingsForStartup: () =>
@@ -221,40 +192,40 @@ export const createHttpHubspotConnector = (
                 ],
               },
             ],
-            properties: [
-              "name",
-              "country",
-              "description",
-              "lifecyclestage",
-              "stade_d_intervention",
-              "type_d_industrie",
-              "type_d_entreprise",
-            ],
+            properties: [...HUBSPOT_STARTUP_DIRECTORY_PROPERTIES],
             limit: 100,
           },
         );
 
         return companies
-          .filter((c) => !INVESTOR_COMPANY_TYPES.has(c.properties.type_d_entreprise ?? ""))
-          .map((c): Startup => {
-            const p = c.properties;
-            const sector = SECTOR_MAP[p.type_d_industrie ?? ""] ?? "other";
-            const country = p.country?.trim();
-            const description = p.description?.trim();
-            return {
-              id: c.id,
-              name: p.name ?? "",
-              sectors: [sector],
-              stage: STAGE_MAP[p.stade_d_intervention ?? ""] ?? "unknown",
-              country: country || undefined,
-              description: description || undefined,
-              visibilityTier: mapVisibilityTier(p.lifecyclestage),
-              sources: [{ system: "hubspot", externalId: c.id, url: undefined }],
-            };
-          });
+          .filter((c) => !isHubspotInvestorCompany(c.properties))
+          .map((c) => mapHubspotCompanyToStartup(c));
       } catch (err) {
         if (err instanceof CoreError) throw err;
         throw ConnectorFailed("hubspot.listStartups failed", { cause: String(err) });
+      }
+    },
+
+    async getStartupById(companyId) {
+      try {
+        type HsCompany = {
+          id: string;
+          properties: Record<string, string | null>;
+        };
+
+        const data = await post("/crm/v3/objects/companies/batch/read", {
+          properties: [...HUBSPOT_STARTUP_DIRECTORY_PROPERTIES],
+          inputs: [{ id: companyId }],
+        }) as { results?: HsCompany[] };
+
+        const company = data.results?.[0];
+        if (!company) return undefined;
+        if (isHubspotInvestorCompany(company.properties)) return undefined;
+
+        return mapHubspotCompanyToStartup(company);
+      } catch (err) {
+        if (err instanceof CoreError) throw err;
+        throw ConnectorFailed("hubspot.getStartupById failed", { cause: String(err) });
       }
     },
 

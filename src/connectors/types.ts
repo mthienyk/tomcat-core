@@ -11,6 +11,7 @@ import type {
 
 export interface HubspotConnector {
   listStartups(): Promise<Startup[]>;
+  getStartupById(companyId: string): Promise<Startup | undefined>;
   listDealsForStartup(startupId: string): Promise<Deal[]>;
   listMeetingsForStartup(startupId: string): Promise<Meeting[]>;
   listNotesForStartup(startupId: string): Promise<Note[]>;

@@ -42,6 +42,7 @@ import type {
   KnowledgeChunkSearchParams,
   KnowledgeIndexChunkInput,
 } from "../domain/crmMemory.js";
+import { noteNeedsSemanticIndex } from "../services/crmMemory/contentHash.js";
 import { buildHubspotActivityDedupeKey } from "../domain/syncQueue.js";
 
 const now = (): string => new Date().toISOString();
@@ -97,6 +98,7 @@ type NoteRow = {
   sensitivity: string;
   created_at: string;
   source: SourceRef;
+  semantic_index_hash: string | null;
 };
 
 type MeetingRow = {
@@ -384,6 +386,34 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       `;
     },
 
+    async insertStartupIfAbsent(s: Startup): Promise<boolean> {
+      const t = now();
+      const rows = await db<{ id: string }[]>`
+        insert into startups
+          (id, name, sectors, stage, country, description, visibility_tier, sources, synced_at)
+        values (
+          ${s.id}, ${s.name}, ${db.json(s.sectors)}, ${s.stage},
+          ${s.country ?? null}, ${s.description ?? null}, ${s.visibilityTier},
+          ${db.json(s.sources)}, ${t}
+        )
+        on conflict (id) do nothing
+        returning id
+      `;
+      return rows.length > 0;
+    },
+
+    async listStartupIdsWithNotesMissingDirectoryEntry(): Promise<string[]> {
+      const rows = await db<{ startup_id: string }[]>`
+        select distinct n.startup_id
+        from notes n
+        left join startups s on s.id = n.startup_id
+        where n.startup_id is not null
+          and s.id is null
+        order by n.startup_id
+      `;
+      return rows.map((row) => row.startup_id);
+    },
+
     async listStartups(): Promise<Startup[]> {
       const rows = await db<StartupRow[]>`select * from startups order by name`;
       return rows.map(mapStartup);
@@ -496,6 +526,25 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
 
     // --- Notes ---
     async upsertNote(n: Note): Promise<void> {
+      const existingRows = await db<NoteRow[]>`
+        select * from notes where id = ${n.id}
+      `;
+      const existing = existingRows[0] ? mapNote(existingRows[0]) : undefined;
+      const indexFieldsChanged =
+        existing !== undefined
+        && (
+          existing.body !== n.body
+          || existing.startupId !== n.startupId
+          || existing.authorEmail !== n.authorEmail
+        );
+
+      if (indexFieldsChanged) {
+        await db`
+          delete from knowledge_index_chunks
+          where source_kind = 'hubspot_note' and source_id = ${n.id}
+        `;
+      }
+
       const t = now();
       await db`
         insert into notes
@@ -513,7 +562,10 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
           source = excluded.source,
           synced_at = excluded.synced_at,
           semantic_index_hash = case
-            when notes.body is distinct from excluded.body then null
+            when notes.body is distinct from excluded.body
+              or notes.startup_id is distinct from excluded.startup_id
+              or notes.author_email is distinct from excluded.author_email
+            then null
             else notes.semantic_index_hash
           end
       `;
@@ -527,15 +579,27 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
     },
 
     async listNotesPendingIndex(limit: number): Promise<Note[]> {
+      const scanLimit = Math.max(limit * 5, limit);
       const rows = await db<NoteRow[]>`
         select * from notes
         where startup_id is not null
-          and char_length(body) >= 100
-          and semantic_index_hash is null
-        order by created_at desc
-        limit ${limit}
+          and length(trim(body)) >= 100
+        order by
+          case when semantic_index_hash is null then 0 else 1 end,
+          created_at desc
+        limit ${scanLimit}
       `;
-      return rows.map(mapNote);
+
+      return rows
+        .filter((row) =>
+          noteNeedsSemanticIndex({
+            body: row.body,
+            startupId: row.startup_id ?? undefined,
+            semanticIndexHash: row.semantic_index_hash,
+          }),
+        )
+        .slice(0, limit)
+        .map(mapNote);
     },
 
     async markNoteIndexed(noteId: string, contentHash: string): Promise<void> {
@@ -1055,6 +1119,13 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
           `;
         }
       });
+    },
+
+    async deleteKnowledgeChunksForNote(noteId: string): Promise<void> {
+      await db`
+        delete from knowledge_index_chunks
+        where source_kind = 'hubspot_note' and source_id = ${noteId}
+      `;
     },
 
     async searchKnowledgeChunks(

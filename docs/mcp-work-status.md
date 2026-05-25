@@ -1,6 +1,6 @@
 # MCP Tomcat — note de reprise
 
-Dernière mise à jour : 2026-05-24 (read model seed validé)
+Dernière mise à jour : 2026-05-25 (CRM semantic memory index live)
 
 Document de handoff pour reprendre le travail sur le MCP Tomcat Core. Spec normative : [mcp-use-cases.md](./mcp-use-cases.md). Read model Postgres : [local-read-model-handoff.md](./local-read-model-handoff.md). **Mémoire CRM / notes Élie** : [crm-notes-memory-handoff.md](./crm-notes-memory-handoff.md).
 
@@ -12,7 +12,7 @@ Construire un **MCP opinionné** pour Tomcat : des tools orientés tâches (pas 
 
 | Surface | Auth | Tools exposés |
 |---------|------|---------------|
-| **Remote HTTP** (`/mcp` Scaleway) | MCP OAuth (Cursor) ou Bearer Google manuel | **19** tools (Signal Hub off) ou **28** (Signal Hub on) |
+| **Remote HTTP** (`/mcp` Scaleway) | MCP OAuth (Cursor) ou Bearer Google manuel | **20** tools (Signal Hub off) ou **29** (Signal Hub on) |
 | **stdio local** | Google session (`npm run auth:google`) | Idem, piloté par `SIGNAL_HUB_ENABLED` |
 | **HTTP `/ai/query`** | Bearer Google / service token | Registry complet (Signal Hub non filtré aujourd'hui) |
 
@@ -53,6 +53,7 @@ Scaleway prod : `/health/readiness` → **`ready`**. MCP lit HubSpot / Monday / 
 | --- | ---: |
 | startups | 1 746 |
 | notes | 4 316 |
+| knowledge_index_chunks | ~5 912 (CRM semantic memory, 2026-05-25) |
 | portfolio_companies | 8 |
 | board_packs | 823 |
 
@@ -140,7 +141,7 @@ Benchmarks : **eSwit** (transform), **Yuccan/Webyn** (hybrid).
 
 ## Tools livrés
 
-**CRM / portfolio / Drive / playbook (19 sans Signal Hub)**
+**CRM / portfolio / Drive / playbook (20 sans Signal Hub)**
 
 - `search_startups`, `read_startup_notes`, `read_startup_deals`, `read_startup_meetings`
 - `list_portfolio_signals`, `build_board_prep_context`, `prepare_board_brief`
@@ -149,7 +150,8 @@ Benchmarks : **eSwit** (transform), **Yuccan/Webyn** (hybrid).
 - `summarize_company_activity`, `find_latest_deck`
 - `list_company_documents`, `read_company_document_excerpt`
 - `list_portfolio_context`, `build_company_360_context`
-- `find_competitive_history`, `resolve_company_drive_folder`
+- `find_competitive_history`, **`find_similar_cases`** (semantic CRM memory)
+- `resolve_company_drive_folder`
 - **`read_bp_playbook`** ← méthode BP Tomcat (modes, mapping, benchmark)
 
 **Signal Hub (+9 si `SIGNAL_HUB_ENABLED=true`)**

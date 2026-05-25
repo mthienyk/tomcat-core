@@ -116,6 +116,8 @@ describe("normalizeHubspotRequestUri", () => {
 describe("syncHubspotCompanyActivity", () => {
   it("upserts activity and company sync state", async () => {
     const store = {
+      getStartupById: async () => undefined,
+      insertStartupIfAbsent: async () => true,
       getHubspotCompanySyncState: async () => undefined,
       upsertDeal: async () => undefined,
       upsertNote: async () => undefined,
@@ -124,6 +126,16 @@ describe("syncHubspotCompanyActivity", () => {
     };
     const connectors = {
       hubspot: {
+        getStartupById: async () => ({
+          id: "42",
+          name: "Acme",
+          sectors: ["saas"],
+          stage: "unknown",
+          country: undefined,
+          description: undefined,
+          visibilityTier: "internal_only",
+          sources: [{ system: "hubspot", externalId: "42" }],
+        }),
         listDealsForStartup: async () => [],
         listNotesForStartup: async () => sampleNotes,
         listMeetingsForStartup: async () => [],
@@ -138,11 +150,23 @@ describe("syncHubspotCompanyActivity", () => {
 
     expect(result.notes).toBe(1);
     expect(result.notesFingerprint).toHaveLength(64);
+    expect(result.startupEnsure).toBe("created");
     expect(result.skipped).toBeUndefined();
   });
 
   it("skips HubSpot fetch when reconcile watermark is unchanged", async () => {
     const store = {
+      getStartupById: async () => ({
+        id: "42",
+        name: "Acme",
+        sectors: ["saas"],
+        stage: "unknown",
+        country: undefined,
+        description: undefined,
+        visibilityTier: "internal_only",
+        sources: [{ system: "hubspot", externalId: "42" }],
+      }),
+      insertStartupIfAbsent: async () => false,
       getHubspotCompanySyncState: async () => ({
         companyId: "42",
         lastActivitySyncAt: "2026-01-01T00:00:00.000Z",
@@ -160,6 +184,7 @@ describe("syncHubspotCompanyActivity", () => {
     };
     const connectors = {
       hubspot: {
+        getStartupById: async () => undefined,
         listDealsForStartup: async () => {
           throw new Error("should not fetch");
         },

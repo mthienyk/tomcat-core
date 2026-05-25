@@ -53,7 +53,9 @@ export type UserRecord = {
 export interface CoreStore {
   // Startups
   upsertStartup(startup: Startup): Promise<void>;
+  insertStartupIfAbsent(startup: Startup): Promise<boolean>;
   listStartups(): Promise<Startup[]>;
+  listStartupIdsWithNotesMissingDirectoryEntry(): Promise<string[]>;
 
   // Investors (business profile, not Google accounts)
   upsertInvestor(investor: Investor): Promise<void>;
@@ -81,6 +83,7 @@ export interface CoreStore {
     noteId: string,
     chunks: KnowledgeIndexChunkInput[],
   ): Promise<void>;
+  deleteKnowledgeChunksForNote(noteId: string): Promise<void>;
   searchKnowledgeChunks(
     params: KnowledgeChunkSearchParams,
   ): Promise<KnowledgeChunkSearchHit[]>;

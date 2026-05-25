@@ -180,7 +180,7 @@ export const buildSimilarCasesService = (deps: {
 
       if (indexedChunks === 0) {
         warnings.push({
-          code: "CRM_MEMORY_INDEX_EMPTY",
+          code: ToolWarningCodes.CRM_MEMORY_INDEX_EMPTY,
           message: "Semantic CRM memory index has no embedded chunks yet.",
           mitigation:
             "Wait for the indexing worker or run a backfill before calling find_similar_cases.",
@@ -201,6 +201,32 @@ export const buildSimilarCasesService = (deps: {
       const referenceStartup = await resolveReferenceStartup(caller, args);
       const sectorStartupIds = await resolveSectorStartupIds(caller, args.sector);
 
+      if (args.sector !== undefined && sectorStartupIds?.length === 0) {
+        const data: SimilarCasesData = {
+          searchBasis: args.noteId
+            ? "note_anchor"
+            : referenceStartup
+              ? "startup_profile"
+              : "free_text",
+          referenceStartup: referenceStartup
+            ? {
+                id: referenceStartup.id,
+                name: referenceStartup.name,
+                sectors: referenceStartup.sectors,
+              }
+            : null,
+          matchCount: 0,
+          matches: [],
+          indexStats: { chunksIndexed: indexedChunks },
+        };
+        warnings.push({
+          code: ToolWarningCodes.NO_SECTOR_MATCHES,
+          message: `No startups matched sector filter "${args.sector}".`,
+          mitigation: "Try a broader sector label or remove the sector filter.",
+        });
+        return wrapToolOutput(data, { warnings });
+      }
+
       let searchBasis: SimilarCasesData["searchBasis"] = "free_text";
       let queryTexts: string[] = [];
 
@@ -209,6 +235,9 @@ export const buildSimilarCasesService = (deps: {
         const note = await store.getNoteById(args.noteId);
         if (!note) {
           throw BadRequest(`No note found for noteId "${args.noteId}".`);
+        }
+        if (!canSeeNote(caller, note)) {
+          throw BadRequest(`Note "${args.noteId}" is not visible to this caller.`);
         }
         queryTexts = [note.body.slice(0, 2000)];
       } else if (referenceStartup) {
@@ -233,6 +262,14 @@ export const buildSimilarCasesService = (deps: {
       }
 
       if (queryTexts.length === 0) {
+        if (
+          (args.startupId !== undefined || args.startupName !== undefined)
+          && !referenceStartup
+        ) {
+          throw BadRequest(
+            "Reference startup not found or not visible to this caller.",
+          );
+        }
         throw BadRequest("Could not build a semantic search query from the provided input.");
       }
 
@@ -293,12 +330,12 @@ export const buildSimilarCasesService = (deps: {
         });
       }
 
-      if (referenceStartup && matches.length === 0) {
+      if (matches.length === 0) {
         warnings.push({
-          code: ToolWarningCodes.NO_SECTOR_MATCHES,
-          message: "No semantically similar historical cases matched the reference startup.",
+          code: ToolWarningCodes.NO_SIMILAR_CASES,
+          message: "No semantically similar historical cases matched the query.",
           mitigation:
-            "Try find_competitive_history for sector peers, or broaden filters (sinceDays, authorEmail).",
+            "Try find_competitive_history for sector peers, broaden filters (sinceDays, authorEmail), or refine the query.",
         });
       }
 

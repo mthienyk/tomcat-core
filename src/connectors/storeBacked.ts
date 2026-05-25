@@ -35,6 +35,11 @@ export const buildStoreBackedConnectors = (
         if (!f.healthy) return live.hubspot.listStartups();
         return store.listStartups();
       },
+      getStartupById: async (companyId) => {
+        const local = await store.getStartupById(companyId);
+        if (local) return local;
+        return live.hubspot.getStartupById(companyId);
+      },
       listDealsForStartup: async (startupId) => {
         const f = await getFreshness("hubspot.deals");
         if (!f.healthy) return live.hubspot.listDealsForStartup(startupId);

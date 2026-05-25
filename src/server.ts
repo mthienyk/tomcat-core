@@ -274,6 +274,7 @@ export const buildServer = async (
 
     const crmMemoryWorker = createCrmMemoryIndexWorker({
       store: coreStore,
+      connectors,
       embeddingRegistry,
       logger: app.log as unknown as Logger,
       config: {
@@ -285,10 +286,14 @@ export const buildServer = async (
     });
 
     crmMemoryIndexTimer = setInterval(() => {
-      void crmMemoryWorker.runOnce();
+      void crmMemoryWorker.runOnce().catch((err) => {
+        app.log.error({ err }, "crm_memory_index_batch_failed");
+      });
     }, config.crmMemory.indexIntervalMs);
     setTimeout(() => {
-      void crmMemoryWorker.runOnce();
+      void crmMemoryWorker.runOnce().catch((err) => {
+        app.log.error({ err }, "crm_memory_index_batch_failed");
+      });
     }, 10_000);
   }
 

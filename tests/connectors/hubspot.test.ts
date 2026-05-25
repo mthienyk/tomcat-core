@@ -137,6 +137,68 @@ describe("createHttpHubspotConnector", () => {
     });
   });
 
+  describe("getStartupById", () => {
+    it("maps a company outside the directory lifecycle filter", async () => {
+      vi.stubGlobal(
+        "fetch",
+        makeFetch({
+          "POST /crm/v3/objects/companies/batch/read": {
+            results: [
+              {
+                id: "51125394087",
+                properties: {
+                  name: "Oscar AI",
+                  country: "France",
+                  description: "Creator analytics",
+                  lifecyclestage: "subscriber",
+                  stade_d_intervention: null,
+                  type_d_industrie: "Future of Work",
+                  type_d_entreprise: "START-UP",
+                },
+              },
+            ],
+          },
+        }),
+      );
+      const hs = createHttpHubspotConnector("fake-token");
+      const startup = await hs.getStartupById("51125394087");
+
+      expect(startup).toMatchObject({
+        id: "51125394087",
+        name: "Oscar AI",
+        sectors: ["saas"],
+        stage: "unknown",
+        visibilityTier: "internal_only",
+      });
+    });
+
+    it("returns undefined for investor companies", async () => {
+      vi.stubGlobal(
+        "fetch",
+        makeFetch({
+          "POST /crm/v3/objects/companies/batch/read": {
+            results: [
+              {
+                id: "888",
+                properties: {
+                  name: "Some VC Fund",
+                  country: null,
+                  description: null,
+                  lifecyclestage: "subscriber",
+                  stade_d_intervention: null,
+                  type_d_industrie: null,
+                  type_d_entreprise: "Investisseur VC / FO",
+                },
+              },
+            ],
+          },
+        }),
+      );
+      const hs = createHttpHubspotConnector("fake-token");
+      await expect(hs.getStartupById("888")).resolves.toBeUndefined();
+    });
+  });
+
   describe("listNotesForStartup", () => {
     it("returns empty array when no associations exist", async () => {
       vi.stubGlobal(
