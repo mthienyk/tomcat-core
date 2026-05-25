@@ -18,10 +18,7 @@ import { buildBpWorkflowService } from "../src/services/bpWorkflow.js";
 import { buildPortfolioCompaniesService } from "../src/services/portfolioCompanies.js";
 import { buildBoardBriefService } from "../src/services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "../src/services/portfolioSignalDigest.js";
-import { buildLlmRegistry } from "../src/llm/registry.js";
 import { buildEmbeddingRegistry } from "../src/llm/embeddings/registry.js";
-import { buildHydeQueryGenerator } from "../src/services/crmMemory/hydeQuery.js";
-import { resolveCrmMemorySemanticLlm } from "../src/services/crmMemory/semanticLlm.js";
 import { buildSimilarCasesService } from "../src/services/crmMemory/similarCases.js";
 import { bootstrapSignalHub } from "../src/services/signalHub/bootstrap.js";
 import { createAuditor } from "../src/audit/audit.js";
@@ -93,17 +90,13 @@ const main = async (): Promise<void> => {
     society,
   });
 
-  const llmRegistry = buildLlmRegistry(config);
   const embeddingRegistry = buildEmbeddingRegistry(config);
   let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
-  if (coreStore && llmRegistry.hasAnyProvider()) {
-    const semanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
-    const hyde = buildHydeQueryGenerator({ llm: semanticLlm });
+  if (coreStore && embeddingRegistry.defaultProvider()) {
     similarCases = buildSimilarCasesService({
       store: coreStore,
       startups,
       embeddings: embeddingRegistry.defaultProvider(),
-      hyde,
     });
   }
 

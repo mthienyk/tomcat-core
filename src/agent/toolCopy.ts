@@ -109,20 +109,22 @@ export const TOOL_DESCRIPTIONS = {
 
   find_similar_cases: meta({
     summary:
-      "Tomcat semantic memory: find historically seen startups similar to a reference company, "
-      + "a free-text question, or a note anchor. Returns company-level matches with cited evidence notes.",
+      "Tomcat semantic memory: vector search over indexed CRM notes. Returns company-level "
+      + "matches with cited evidence. You write dense searchTexts before calling.",
     whenToUse: [
       "Prep M1/M2: « have we seen similar cases before? »",
       "After resolve_entity when sector tags are incomplete or misleading",
       "Cross-segment memory: payroll, GTM motion, red flags, market view",
     ],
     prerequisites: [
-      "Prefer startupId from resolve_entity for prep workflows",
+      "resolve_entity first when prepping a known company",
       "Requires semantic index (Postgres + embeddings worker)",
     ],
     inputTips: [
-      "startupId — primary input when prepping a known company",
-      "query — free-text when no reference startup is resolved yet",
+      "searchTexts (preferred) — 1–3 dense excerpts you write, styled like Tomcat M1/M2 notes or investment_lens (market, GTM, red flags, Tomcat judgment). Not a raw user question.",
+      "startupId — exclude the reference company from results and attach metadata",
+      "query — fallback: embeds your text directly without server-side rewriting",
+      "noteId — search from a known note body when you already have a noteId",
       "authorEmail — filter evidence to one author (e.g. Élie M1/M2 notes)",
       "sinceDays — limit to recent history",
       "chunkKind — investment_lens for Tomcat judgment, recap for general similarity",
@@ -138,6 +140,7 @@ export const TOOL_DESCRIPTIONS = {
     ],
     limitations: [
       "Returns empty with CRM_MEMORY_INDEX_EMPTY until the indexing worker has run",
+      "Quality depends on how well searchTexts match indexed recap/investment_lens style",
       "Semantic similarity complements but does not replace sector-based history",
     ],
     sources: ["hubspot"],

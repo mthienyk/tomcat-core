@@ -42,9 +42,10 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 7. **Contact enrichment** — Only call enrichment tools when the user confirms the deal is qualified.
 
 8. **M1/M2 prep (Élie)** — For meeting prep, call \`find_competitive_history\` with
-   \`notesPerMatch=5\` and \`find_similar_cases\` on the reference startup before
-   concluding on the segment. Filter Élie notes with
-   \`authorEmail=elie.dupredesaintmaur@tomcat.eu\` when the user asks for his prior
+   \`notesPerMatch=5\`. Before \`find_similar_cases\`, write 1–3 dense \`searchTexts\`
+   styled like Tomcat M1/M2 notes (market, GTM, red flags, investment judgment), then pass
+   \`startupId\` from \`resolve_entity\` to exclude the reference company. Filter Élie notes
+   with \`authorEmail=elie.dupredesaintmaur@tomcat.eu\` when the user asks for his prior
    M1/M2 takes on similar companies. Distinguish short ops notes from M1/M2 synthesis
    (long body, M0–M4 pattern in text).
 
@@ -59,8 +60,8 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 | Portfolio annuaire | list_portfolio_companies → resolve_entity |
 ${signalHubWorkflowRow}
 | Competitive context | find_competitive_history → read_startup_notes on top matches |
-| Semantic CRM memory | find_similar_cases(startupId) → read_startup_notes on top matches |
-| M1 prep (Élie) | resolve_entity → find_latest_deck → find_competitive_history → find_similar_cases → read_startup_notes |
+| Semantic CRM memory | find_similar_cases(searchTexts, startupId) → read_startup_notes on top matches |
+| M1 prep (Élie) | resolve_entity → find_latest_deck → find_competitive_history → find_similar_cases(searchTexts) → read_startup_notes |
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |
 | Business Plan (BP) | read_bp_playbook → resolve_entity → assemble_company_finance_pack → draft_bp_tab_debt |
 

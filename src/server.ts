@@ -34,7 +34,6 @@ import { buildBoardBriefService } from "./services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "./services/portfolioSignalDigest.js";
 import { createSyncScheduler } from "./sync/scheduler.js";
 import { createCrmMemoryIndexWorker } from "./sync/crmMemoryIndexWorker.js";
-import { buildHydeQueryGenerator } from "./services/crmMemory/hydeQuery.js";
 import { resolveCrmMemorySemanticLlm } from "./services/crmMemory/semanticLlm.js";
 import { buildSimilarCasesService } from "./services/crmMemory/similarCases.js";
 import { errorHandler } from "./api/errorHandler.js";
@@ -262,15 +261,16 @@ export const buildServer = async (
   let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
   let crmMemoryIndexTimer: ReturnType<typeof setInterval> | undefined;
 
-  if (coreStore && llmRegistry.hasAnyProvider()) {
-    const semanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
-    const hyde = buildHydeQueryGenerator({ llm: semanticLlm });
+  if (coreStore && embeddingRegistry.defaultProvider()) {
     similarCases = buildSimilarCasesService({
       store: coreStore,
       startups,
       embeddings: embeddingRegistry.defaultProvider(),
-      hyde,
     });
+  }
+
+  if (coreStore && llmRegistry.hasAnyProvider()) {
+    const semanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
 
     const crmMemoryWorker = createCrmMemoryIndexWorker({
       store: coreStore,

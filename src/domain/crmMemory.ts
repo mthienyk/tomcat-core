@@ -83,7 +83,7 @@ export type SimilarCaseMatch = {
 };
 
 export type SimilarCasesData = {
-  searchBasis: "startup_profile" | "free_text" | "note_anchor";
+  searchBasis: "client_text" | "free_text" | "note_anchor";
   referenceStartup: {
     id: string;
     name: string;

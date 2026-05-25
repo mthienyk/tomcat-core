@@ -120,13 +120,3 @@ export const buildSemanticCardSystemPrompt = (): string =>
     "Output:",
     JSON.stringify(GOLDEN_OUTPUT, null, 2),
   ].join("\n");
-
-export const buildHydeSystemPrompt = (): string =>
-  [
-    TOMCAT_CONTEXT,
-    "",
-    "You help Tomcat retrieve similar historical startup cases from CRM memory.",
-    "Given a reference startup profile or a user question, produce 1-3 short hypothetical",
-    "M1/M2 synthesis excerpts that would match comparable companies Tomcat has already seen.",
-    "Write as dense CRM note excerpts, not keyword lists.",
-  ].join("\n");

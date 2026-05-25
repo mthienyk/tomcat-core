@@ -22,12 +22,3 @@ export const CrmMemorySemanticCardSchema = z
 export type CrmMemorySemanticCardOutput = z.infer<
   typeof CrmMemorySemanticCardSchema
 >;
-
-export const CrmMemoryHydeQuerySchema = z
-  .object({
-    searchIntent: z.string().min(1),
-    hypotheticalNotes: z.array(z.string().min(1)).min(1).max(3),
-  })
-  .strict();
-
-export type CrmMemoryHydeQueryOutput = z.infer<typeof CrmMemoryHydeQuerySchema>;

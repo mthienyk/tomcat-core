@@ -59,7 +59,7 @@ HubSpot (source de vérité)
         │
         ▼
 ┌───────────────────────────────────────┐
-│  Couche 3 — MCP                       │  find_similar_cases + HyDE
+│  Couche 3 — MCP                       │  find_similar_cases (embed + pgvector)
 └───────────────────────────────────────┘
 ```
 
@@ -87,11 +87,14 @@ HubSpot (source de vérité)
 
 ### `find_similar_cases`
 
-**Inputs** (au moins un) :
+**Query-time** (MCP) : Claude rédige `searchTexts` denses → embed → pgvector → evidence. Pas de LLM serveur au query-time.
 
-- `startupId` / `startupName` — profil boîte + HyDE
-- `query` — texte libre + HyDE
-- `noteId` — anchor direct sur le corps note (sans HyDE, plus rapide)
+**Inputs** (au moins un parmi searchTexts / query / noteId) :
+
+- **`searchTexts`** (recommandé) — 1–3 extraits denses style note M1 / investment_lens, rédigés par Claude
+- **`query`** — embed direct (fallback)
+- **`noteId`** — embed le corps d'une note connue
+- **`startupId`** — metadata + exclusion de la boîte courante (pas de recherche auto)
 
 **Filtres** : `authorEmail`, `sector`, `sinceDays`, `chunkKind`, `limit`
 
@@ -101,7 +104,8 @@ HubSpot (source de vérité)
 
 ```text
 resolve_entity
-  → find_similar_cases(startupId, authorEmail=elie@..., sinceDays=1095)
+  → (Claude rédige searchTexts denses à partir du deck + contexte)
+  → find_similar_cases(searchTexts, startupId, authorEmail=elie@..., sinceDays=1095)
   → read_startup_notes sur top 2 matches
   → find_similar_cases(noteId=..., authorEmail=elie@...) si une note clé ressort
   → find_competitive_history en complément secteur
@@ -113,17 +117,17 @@ resolve_entity
 
 | Fichier | Rôle |
 | --- | --- |
-| `src/services/crmMemory/similarCases.ts` | Query-time : HyDE, search, agrégation |
+| `src/services/crmMemory/similarCases.ts` | Query-time : embed + search + agrégation |
 | `src/services/crmMemory/indexNote.ts` | Index worker batch |
-| `src/services/crmMemory/semanticCard.ts` | LLM structured card |
-| `src/services/crmMemory/hydeQuery.ts` | HyDE query expansion |
-| `src/prompts/crmMemory/prompts.ts` | Prompt + golden example Favikon |
+| `src/services/crmMemory/semanticCard.ts` | LLM structured card (index only) |
+| `src/prompts/crmMemory/prompts.ts` | Prompt index + golden example Favikon |
 | `src/sync/crmMemoryIndexWorker.ts` | Worker scheduler |
 | `src/sync/ensureHubspotStartup.ts` | Ensure startup au activity sync + worker |
 | `src/connectors/hubspotCompanyMapping.ts` | Mapping company HubSpot → Startup |
 | `src/storage/migrations/pg_008_knowledge_index_vector.sql` | pgvector + semantic_index_hash |
 | `scripts/crmMemoryIndexStatus.ts` | `npm run crm:index-status` |
 | `scripts/crmMemoryEnsureOrphanStartups.ts` | Backfill startups orphelines |
+| `scripts/crmMemoryQueryBenchmark.ts` | `npm run crm:query-benchmark` |
 
 ---
 
@@ -148,6 +152,7 @@ Local dev : `CRM_MEMORY_INDEX_ENABLED=false` (protège clés perso). Index lu vi
 ```bash
 npm run crm:index-status
 npm run crm:ensure-orphan-startups   # backfill startups manquantes dans annuaire
+npm run crm:query-benchmark          # latence searchTexts / query / noteId (prod DB)
 ```
 
 ---
@@ -164,7 +169,7 @@ npm run crm:ensure-orphan-startups   # backfill startups manquantes dans annuair
 ## 9. Phase B — ✅ livré
 
 - pgvector + worker + backfill (~2 956 notes)
-- `find_similar_cases` + HyDE
+- `find_similar_cases` + `searchTexts` client-side (embed direct, pas de LLM query-time)
 - Ensure startup orphelin (activity sync + worker + script backfill)
 - Invalidation index sur edit note / metadata
 
@@ -181,11 +186,10 @@ npm run crm:ensure-orphan-startups   # backfill startups manquantes dans annuair
 
 | Limite | Détail |
 | --- | --- |
-| HyDE non déterministe | Même query → résultats peuvent varier entre runs |
-| Annuaire vs activity | Notes syncées pour boîtes hors lifecycle funnel ; corrigé par ensure, pas dans `listStartups` MCP |
+| Qualité searchTexts | Claude doit écrire des extraits denses style recap/investment_lens |
+| Annuaire vs activity | Notes syncées pour boîtes hors lifecycle funnel ; corrigé par ensure |
 | MCP local stdio | Pas de worker index ; utiliser MCP remote ou API prod |
-| `computeNotesFingerprint` | Stocké au sync activity, non utilisé par l'indexer (timer-based) |
-| Cosmétique / tags sectoriels | Peu de notes taguées → préférer queries métier explicites |
+| Cosmétique / tags sectoriels | Peu de notes taguées → préférer searchTexts métier explicites |
 
 ---
 
@@ -196,6 +200,14 @@ npm test   # tests/services/similarCases.test.ts, crmMemory.test.ts, ensureHubsp
 ```
 
 Manuel : queries payroll B2B, Oscar AI profile, note anchor Élie (`84190149041`).
+
+Benchmark query-time (2026-05-25, prod DB, sans HyDE) :
+
+| Path | Latence | Top matches |
+| --- | --- | --- |
+| `searchTexts` payroll B2B | ~3.1 s | DATA DRIVEN, Noota, Lisy ex Snapkey |
+| `query` direct embed | ~1.3 s | CLIKING, Wobee, BPartners artisans |
+| `noteId` Favikon | ~1.5 s | Tenors, Ocean Pink UMAY, Citydays |
 
 ---
 

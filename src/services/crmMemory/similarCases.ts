@@ -20,11 +20,11 @@ import type { EmbeddingProvider } from "../../llm/embeddings/types.js";
 import type { StartupsService } from "../startups.js";
 import { canSeeNote } from "../../permissions/policies.js";
 import { matchesAuthorEmail } from "../noteRanking.js";
-import type { HydeQueryGenerator } from "./hydeQuery.js";
 
 const EXCERPT_MAX = 400;
 const SEARCH_POOL = 60;
 const EVIDENCE_PER_CASE = 3;
+const MAX_SEARCH_TEXTS = 3;
 
 const excerpt = (text: string): string =>
   text.length > EXCERPT_MAX ? `${text.slice(0, EXCERPT_MAX)}…` : text;
@@ -66,13 +66,15 @@ const buildSoWhat = (hits: KnowledgeChunkSearchHit[]): string => {
   return top.meta.tomcatTake || top.meta.investmentLens || top.chunkText;
 };
 
+const normalizeSearchTexts = (texts: readonly string[]): string[] =>
+  texts.map((text) => text.trim()).filter(Boolean).slice(0, MAX_SEARCH_TEXTS);
+
 export const buildSimilarCasesService = (deps: {
   store: CoreStore;
   startups: StartupsService;
   embeddings: EmbeddingProvider | undefined;
-  hyde: HydeQueryGenerator;
 }) => {
-  const { store, startups, embeddings, hyde } = deps;
+  const { store, startups, embeddings } = deps;
 
   const resolveReferenceStartup = async (
     caller: Identity,
@@ -165,6 +167,7 @@ export const buildSimilarCasesService = (deps: {
       args: {
         startupId?: string;
         startupName?: string;
+        searchTexts?: string[];
         query?: string;
         noteId?: string;
         authorEmail?: string;
@@ -187,14 +190,13 @@ export const buildSimilarCasesService = (deps: {
         });
       }
 
-      const hasSeed =
-        args.startupId !== undefined
-        || args.startupName !== undefined
-        || args.query !== undefined
-        || args.noteId !== undefined;
-      if (!hasSeed) {
+      const hasSearchInput =
+        args.noteId !== undefined
+        || args.searchTexts !== undefined
+        || args.query !== undefined;
+      if (!hasSearchInput) {
         throw BadRequest(
-          "Provide startupId, startupName, query, or noteId to search Tomcat CRM memory.",
+          "Provide searchTexts (preferred), query, or noteId to search Tomcat CRM memory.",
         );
       }
 
@@ -205,8 +207,8 @@ export const buildSimilarCasesService = (deps: {
         const data: SimilarCasesData = {
           searchBasis: args.noteId
             ? "note_anchor"
-            : referenceStartup
-              ? "startup_profile"
+            : args.searchTexts?.length
+              ? "client_text"
               : "free_text",
           referenceStartup: referenceStartup
             ? {
@@ -240,37 +242,28 @@ export const buildSimilarCasesService = (deps: {
           throw BadRequest(`Note "${args.noteId}" is not visible to this caller.`);
         }
         queryTexts = [note.body.slice(0, 2000)];
-      } else if (referenceStartup) {
-        searchBasis = "startup_profile";
-        const recentNotes = await startups.listAccessibleNotes(
-          caller,
-          { startupId: referenceStartup.id },
-          { limit: 1, minBodyLength: 100 },
-        );
-        const hydeResult = await hyde.generateHydeQueries({
-          mode: "startup_profile",
-          startup: referenceStartup,
-          recentNoteExcerpt: recentNotes[0]?.body.slice(0, 800),
-        });
-        queryTexts = hydeResult.hypotheticalNotes;
+      } else if (args.searchTexts !== undefined) {
+        queryTexts = normalizeSearchTexts(args.searchTexts);
+        if (queryTexts.length === 0) {
+          throw BadRequest("searchTexts must contain at least one non-empty string.");
+        }
+        searchBasis = "client_text";
       } else if (args.query) {
-        const hydeResult = await hyde.generateHydeQueries({
-          mode: "free_text",
-          query: args.query,
-        });
-        queryTexts = hydeResult.hypotheticalNotes;
+        const query = args.query.trim();
+        if (!query) {
+          throw BadRequest("query must be a non-empty string.");
+        }
+        queryTexts = [query];
+        searchBasis = "free_text";
       }
 
-      if (queryTexts.length === 0) {
-        if (
-          (args.startupId !== undefined || args.startupName !== undefined)
-          && !referenceStartup
-        ) {
-          throw BadRequest(
-            "Reference startup not found or not visible to this caller.",
-          );
-        }
-        throw BadRequest("Could not build a semantic search query from the provided input.");
+      if (
+        (args.startupId !== undefined || args.startupName !== undefined)
+        && !referenceStartup
+      ) {
+        throw BadRequest(
+          "Reference startup not found or not visible to this caller.",
+        );
       }
 
       const rawHits = await searchWithQueries({
@@ -335,7 +328,7 @@ export const buildSimilarCasesService = (deps: {
           code: ToolWarningCodes.NO_SIMILAR_CASES,
           message: "No semantically similar historical cases matched the query.",
           mitigation:
-            "Try find_competitive_history for sector peers, broaden filters (sinceDays, authorEmail), or refine the query.",
+            "Rewrite searchTexts as dense M1-style excerpts, try find_competitive_history, or broaden filters (sinceDays, authorEmail).",
         });
       }
 

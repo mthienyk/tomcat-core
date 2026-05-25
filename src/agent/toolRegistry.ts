@@ -296,6 +296,7 @@ const FindSimilarCasesArgs = z
   .object({
     startupId: z.string().min(1).optional(),
     startupName: z.string().min(1).optional(),
+    searchTexts: z.array(z.string().min(1)).min(1).max(3).optional(),
     query: z.string().min(1).optional(),
     noteId: z.string().min(1).optional(),
     authorEmail: z.string().email().optional(),
@@ -827,6 +828,7 @@ export const AGENT_TOOL_REGISTRY = [
       return services.similarCases.findSimilarCases(caller, {
         ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
         ...(args.startupName !== undefined ? { startupName: args.startupName } : {}),
+        ...(args.searchTexts !== undefined ? { searchTexts: args.searchTexts } : {}),
         ...(args.query !== undefined ? { query: args.query } : {}),
         ...(args.noteId !== undefined ? { noteId: args.noteId } : {}),
         ...(args.authorEmail !== undefined ? { authorEmail: args.authorEmail } : {}),
