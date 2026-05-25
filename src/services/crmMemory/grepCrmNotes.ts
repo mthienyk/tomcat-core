@@ -12,7 +12,7 @@ import type { StartupsService } from "../startups.js";
 import { canSeeNote } from "../../permissions/policies.js";
 import { redactNoteBody } from "../../permissions/redact.js";
 import { matchesAuthorEmail } from "../noteRanking.js";
-import { parseGrepTerms } from "./grepTerms.js";
+import { parseGrepTerms, filterGrepTerms } from "./grepTerms.js";
 
 const EXCERPT_RADIUS = 120;
 const DEFAULT_LIMIT = 25;
@@ -27,6 +27,8 @@ export type GrepCrmNotesMatch = {
   createdAt: string;
   excerpt: string;
   bodyLength: number;
+  matchSource: "note_body" | "index_meta";
+  matchedField?: "competitorNames" | "markets" | "chunkText";
 };
 
 export type GrepCrmNotesData = {
@@ -117,14 +119,15 @@ export const buildGrepCrmNotesService = (deps: {
         limit?: number;
       },
     ): Promise<ToolRunEnvelope<GrepCrmNotesData>> => {
-      const terms = parseGrepTerms(args.query);
-      if (terms.length === 0) {
+      const parsedTerms = parseGrepTerms(args.query);
+      if (parsedTerms.length === 0) {
         throw BadRequest(
           "query must contain at least one searchable term (min 2 characters). Use quotes for phrases.",
         );
       }
 
       const matchMode = args.matchMode ?? "all";
+      const terms = filterGrepTerms(parsedTerms, matchMode);
       const limit = Math.min(args.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
       const { visible, startupIds } = await resolveScope(startups, caller, args);
       const startupNameById = new Map(
@@ -161,6 +164,7 @@ export const buildGrepCrmNotesService = (deps: {
       });
 
       const matches: GrepCrmNotesMatch[] = [];
+      const seenNoteIds = new Set<string>();
 
       for (const hit of hits) {
         if (!canSeeNote(caller, hit.note)) continue;
@@ -173,6 +177,7 @@ export const buildGrepCrmNotesService = (deps: {
           continue;
         }
 
+        seenNoteIds.add(note.id);
         matches.push({
           noteId: note.id,
           startupId: note.startupId,
@@ -183,9 +188,51 @@ export const buildGrepCrmNotesService = (deps: {
           createdAt: note.createdAt,
           excerpt: excerptAroundTerm(note.body, terms),
           bodyLength: note.body.length,
+          matchSource: "note_body",
         });
 
         if (matches.length >= limit) break;
+      }
+
+      if (matches.length < limit) {
+        const metaHits = await store.grepKnowledgeIndexMeta({
+          terms,
+          matchMode,
+          startupIds,
+          ...(args.authorEmail !== undefined ? { authorEmail: args.authorEmail } : {}),
+          ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
+          limit: limit * ACL_SCAN_MULTIPLIER,
+        });
+
+        for (const hit of metaHits) {
+          if (seenNoteIds.has(hit.noteId)) continue;
+
+          const note = await store.getNoteById(hit.noteId);
+          if (!note || !canSeeNote(caller, note)) continue;
+
+          const redacted = redactNoteBody(caller, note);
+          if (
+            args.authorEmail !== undefined
+            && !matchesAuthorEmail(redacted, args.authorEmail)
+          ) {
+            continue;
+          }
+
+          seenNoteIds.add(hit.noteId);
+          matches.push({
+            noteId: hit.noteId,
+            startupId: hit.startupId,
+            startupName: startupNameById.get(hit.startupId),
+            authorEmail: hit.authorEmail,
+            createdAt: hit.noteCreatedAt,
+            excerpt: excerptAroundTerm(hit.chunkText, terms),
+            bodyLength: redacted.body.length,
+            matchSource: "index_meta",
+            matchedField: hit.matchedField,
+          });
+
+          if (matches.length >= limit) break;
+        }
       }
 
       const nextSuggestedTools: SuggestedToolCall[] = [];

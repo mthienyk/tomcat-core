@@ -21,6 +21,9 @@ import { buildPortfolioSignalDigestService } from "../src/services/portfolioSign
 import { buildEmbeddingRegistry } from "../src/llm/embeddings/registry.js";
 import { buildSimilarCasesService } from "../src/services/crmMemory/similarCases.js";
 import { buildGrepCrmNotesService } from "../src/services/crmMemory/grepCrmNotes.js";
+import { buildM1MeetingBriefService } from "../src/services/crmMemory/m1MeetingBrief.js";
+import { resolveCrmMemorySemanticLlm } from "../src/services/crmMemory/semanticLlm.js";
+import { buildLlmRegistry } from "../src/llm/registry.js";
 import { bootstrapSignalHub } from "../src/services/signalHub/bootstrap.js";
 import { createAuditor } from "../src/audit/audit.js";
 import { createMcpCallerResolver } from "../src/auth/mcpCaller.js";
@@ -92,8 +95,10 @@ const main = async (): Promise<void> => {
   });
 
   const embeddingRegistry = buildEmbeddingRegistry(config);
+  const llmRegistry = buildLlmRegistry(config);
   let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
   let grepCrmNotes: ReturnType<typeof buildGrepCrmNotesService> | undefined;
+  let m1MeetingBrief: ReturnType<typeof buildM1MeetingBriefService> | undefined;
   if (coreStore && embeddingRegistry.defaultProvider()) {
     similarCases = buildSimilarCasesService({
       store: coreStore,
@@ -105,6 +110,19 @@ const main = async (): Promise<void> => {
     grepCrmNotes = buildGrepCrmNotesService({
       store: coreStore,
       startups,
+    });
+  }
+  if (coreStore && similarCases) {
+    const semanticLlm = llmRegistry.hasAnyProvider()
+      ? resolveCrmMemorySemanticLlm(config, llmRegistry)
+      : undefined;
+    m1MeetingBrief = buildM1MeetingBriefService({
+      startups,
+      findLatestDeck,
+      companyActivitySummary,
+      similarCases,
+      grepCrmNotes,
+      semanticLlm,
     });
   }
 
@@ -123,6 +141,7 @@ const main = async (): Promise<void> => {
     portfolioCompanies,
     similarCases,
     grepCrmNotes,
+    m1MeetingBrief,
   };
   const auditor = createAuditor(logger);
   const resolveCaller = createMcpCallerResolver(config, coreStore);

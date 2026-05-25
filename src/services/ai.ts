@@ -18,6 +18,7 @@ import type { BpWorkflowService } from "./bpWorkflow.js";
 import type { PortfolioCompaniesService } from "./portfolioCompanies.js";
 import type { SimilarCasesService } from "./crmMemory/similarCases.js";
 import type { GrepCrmNotesService } from "./crmMemory/grepCrmNotes.js";
+import type { M1MeetingBriefService } from "./crmMemory/m1MeetingBrief.js";
 
 export type AiQueryResult = {
   provider: LlmProviderName;
@@ -46,6 +47,7 @@ export type AiServiceDeps = {
   portfolioCompanies: PortfolioCompaniesService;
   similarCases: SimilarCasesService | undefined;
   grepCrmNotes: GrepCrmNotesService | undefined;
+  m1MeetingBrief: M1MeetingBriefService | undefined;
   auditor: Auditor;
 };
 
@@ -85,6 +87,7 @@ export const buildAiService = (deps: AiServiceDeps) => ({
         portfolioCompanies: deps.portfolioCompanies,
         similarCases: deps.similarCases,
         grepCrmNotes: deps.grepCrmNotes,
+        m1MeetingBrief: deps.m1MeetingBrief,
       },
       caller,
       auditor: deps.auditor,

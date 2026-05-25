@@ -25,6 +25,7 @@ import type { BpWorkflowService } from "../services/bpWorkflow.js";
 import type { PortfolioCompaniesService } from "../services/portfolioCompanies.js";
 import type { SimilarCasesService } from "../services/crmMemory/similarCases.js";
 import type { GrepCrmNotesService } from "../services/crmMemory/grepCrmNotes.js";
+import type { M1MeetingBriefService } from "../services/crmMemory/m1MeetingBrief.js";
 import { readBpPlaybook } from "../services/bpPlaybook.js";
 
 export type AgentToolServices = {
@@ -42,6 +43,7 @@ export type AgentToolServices = {
   portfolioCompanies: PortfolioCompaniesService;
   similarCases: SimilarCasesService | undefined;
   grepCrmNotes: GrepCrmNotesService | undefined;
+  m1MeetingBrief: M1MeetingBriefService | undefined;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -318,6 +320,16 @@ const GrepCrmNotesArgs = z
     authorEmail: z.string().email().optional(),
     sinceDays: z.number().int().positive().max(3650).optional(),
     limit: z.number().int().positive().max(50).optional(),
+  })
+  .strict();
+
+const PrepareM1MeetingBriefArgs = z
+  .object({
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    oralContext: z.string().min(1).max(4000).optional(),
+    sinceDays: z.number().int().positive().max(3650).optional(),
+    similarLimit: z.number().int().positive().max(15).optional(),
   })
   .strict();
 
@@ -877,6 +889,34 @@ export const AGENT_TOOL_REGISTRY = [
         ...(args.authorEmail !== undefined ? { authorEmail: args.authorEmail } : {}),
         ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
+      });
+    },
+  }),
+  defineAgentTool({
+    name: "prepare_m1_meeting_brief",
+    title: "Prepare M1 Meeting Brief",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.prepare_m1_meeting_brief),
+
+    labels: ["startup", "crm", "memory", "m1", "brief"],
+    sources: ["hubspot", "drive"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: PrepareM1MeetingBriefArgs,
+    execute: async ({ services, caller, args }) => {
+      if (!services.m1MeetingBrief) {
+        throw BadRequest(
+          "M1 meeting brief requires semantic CRM memory and Postgres read model.",
+        );
+      }
+      if (args.startupId === undefined && args.startupName === undefined) {
+        throw BadRequest("Provide startupId or startupName.");
+      }
+      return services.m1MeetingBrief.prepareM1MeetingBrief(caller, {
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined ? { startupName: args.startupName } : {}),
+        ...(args.oralContext !== undefined ? { oralContext: args.oralContext } : {}),
+        ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
+        ...(args.similarLimit !== undefined ? { similarLimit: args.similarLimit } : {}),
       });
     },
   }),

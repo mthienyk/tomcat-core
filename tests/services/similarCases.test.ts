@@ -74,6 +74,7 @@ const buildService = (overrides: {
     store: {
       countIndexedKnowledgeChunks: vi.fn().mockResolvedValue(12),
       searchKnowledgeChunks: vi.fn().mockResolvedValue([chunkHit]),
+      listKnowledgeChunksForNote: vi.fn().mockResolvedValue([]),
       getNoteById: vi.fn().mockResolvedValue({
         id: "note_1",
         startupId: "hs_peer",
@@ -192,11 +193,49 @@ describe("similarCases service", () => {
     expect(searchKnowledgeChunks).not.toHaveBeenCalled();
   });
 
+  it("embeds indexed recap/lens for note anchors when available", async () => {
+    const embed = vi.fn().mockResolvedValue([
+      Array(1536).fill(0.01),
+      Array(1536).fill(0.02),
+    ]);
+    const service = buildService({
+      embed,
+      store: {
+        countIndexedKnowledgeChunks: vi.fn().mockResolvedValue(12),
+        searchKnowledgeChunks: vi.fn().mockResolvedValue([chunkHit]),
+        listKnowledgeChunksForNote: vi.fn().mockResolvedValue([
+          { chunkKind: "recap", chunkText: "Recap excerpt for anchor." },
+          {
+            chunkKind: "investment_lens",
+            chunkText: "Lens excerpt for anchor.",
+          },
+        ]),
+        getNoteById: vi.fn().mockResolvedValue({
+          id: "note_anchor",
+          startupId: "hs_peer",
+          authorEmail: "elie.dupredesaintmaur@tomcat.eu",
+          body: "Raw note body should not be embedded when chunks exist.",
+          sensitivity: "internal",
+          createdAt: "2024-03-01T10:00:00Z",
+          source: { system: "hubspot", externalId: "note_anchor" },
+        }),
+      },
+    });
+
+    await service.findSimilarCases(caller, { noteId: "note_anchor" });
+
+    expect(embed).toHaveBeenCalledWith([
+      "Recap excerpt for anchor.",
+      "Lens excerpt for anchor.",
+    ]);
+  });
+
   it("rejects note anchors the caller cannot read", async () => {
     const service = buildService({
       store: {
         countIndexedKnowledgeChunks: vi.fn().mockResolvedValue(12),
         searchKnowledgeChunks: vi.fn(),
+        listKnowledgeChunksForNote: vi.fn(),
         getNoteById: vi.fn().mockResolvedValue({
           id: "note_secret",
           startupId: "hs_peer",

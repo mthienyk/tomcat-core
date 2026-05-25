@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildIlikePattern,
   escapeIlikePattern,
+  filterGrepTerms,
   parseGrepTerms,
 } from "../../src/services/crmMemory/grepTerms.js";
 
@@ -25,5 +26,18 @@ describe("grepTerms", () => {
   it("escapes ilike wildcards", () => {
     expect(escapeIlikePattern("100%_done")).toBe("100\\%\\_done");
     expect(buildIlikePattern("100%_done")).toBe("%100\\%\\_done%");
+  });
+
+  it("filters ambiguous French terms in matchMode any", () => {
+    expect(filterGrepTerms(["Rosaly", "avance", "salaire"], "any")).toEqual([
+      "Rosaly",
+    ]);
+  });
+
+  it("keeps all terms in matchMode all", () => {
+    expect(filterGrepTerms(["Rosaly", "avance"], "all")).toEqual([
+      "Rosaly",
+      "avance",
+    ]);
   });
 });

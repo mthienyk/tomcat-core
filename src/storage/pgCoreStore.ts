@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "./pgClient.js";
 import type {
   CoreStore,
+  GrepIndexMetaHit,
   GrepNotesParams,
+  IndexedNoteChunkRecord,
   SyncRun,
   DatasetFreshness,
   UserRecord,
@@ -665,6 +667,175 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
         note: mapNote(row),
         startupName: row.startup_name ?? undefined,
       }));
+    },
+
+    async listKnowledgeChunksForNote(noteId: string) {
+      type ChunkRow = {
+        id: string;
+        source_id: string;
+        startup_id: string;
+        chunk_kind: string;
+        chunk_text: string;
+        author_email: string;
+        note_created_at: string;
+        meta: CrmMemorySemanticCard;
+      };
+
+      const rows = await db<ChunkRow[]>`
+        select
+          id,
+          source_id,
+          startup_id,
+          chunk_kind,
+          chunk_text,
+          author_email,
+          note_created_at,
+          meta
+        from knowledge_index_chunks
+        where source_kind = 'hubspot_note'
+          and source_id = ${noteId}
+          and embedding is not null
+        order by chunk_idx asc
+      `;
+
+      return rows.map((row) => ({
+        chunkId: row.id,
+        noteId: row.source_id,
+        startupId: row.startup_id,
+        chunkKind: row.chunk_kind as IndexedNoteChunkRecord["chunkKind"],
+        chunkText: row.chunk_text,
+        authorEmail: row.author_email,
+        noteCreatedAt: row.note_created_at,
+        meta: row.meta,
+      }));
+    },
+
+    async grepKnowledgeIndexMeta(params: GrepNotesParams) {
+      if (params.terms.length === 0 || params.startupIds.length === 0) {
+        return [];
+      }
+
+      const sinceCutoff =
+        params.sinceDays !== undefined
+          ? new Date(
+              Date.now() - params.sinceDays * 86_400_000,
+            ).toISOString()
+          : undefined;
+      const authorPattern =
+        params.authorEmail !== undefined
+          ? `%${escapeIlikePattern(params.authorEmail.trim().toLowerCase())}%`
+          : undefined;
+
+      type MetaRow = {
+        source_id: string;
+        startup_id: string;
+        chunk_kind: string;
+        chunk_text: string;
+        author_email: string;
+        note_created_at: string;
+        matched_field: GrepIndexMetaHit["matchedField"];
+        matched_term: string;
+      };
+
+      const hits: MetaRow[] = [];
+
+      for (const term of params.terms) {
+        const pattern = buildIlikePattern(term);
+        const rows = await db<MetaRow[]>`
+          select
+            source_id,
+            startup_id,
+            chunk_kind,
+            chunk_text,
+            author_email,
+            note_created_at,
+            case
+              when exists (
+                select 1
+                from jsonb_array_elements_text(meta->'competitorNames') cn
+                where cn ilike ${pattern}
+              ) then 'competitorNames'
+              when exists (
+                select 1
+                from jsonb_array_elements_text(meta->'markets') mk
+                where mk ilike ${pattern}
+              ) then 'markets'
+              else 'chunkText'
+            end as matched_field,
+            ${term} as matched_term
+          from knowledge_index_chunks
+          where source_kind = 'hubspot_note'
+            and embedding is not null
+            and startup_id = any(${params.startupIds})
+            ${authorPattern !== undefined ? db`and lower(author_email) like ${authorPattern}` : db``}
+            ${sinceCutoff !== undefined ? db`and note_created_at >= ${sinceCutoff}` : db``}
+            and (
+              chunk_text ilike ${pattern}
+              or exists (
+                select 1
+                from jsonb_array_elements_text(meta->'competitorNames') cn
+                where cn ilike ${pattern}
+              )
+              or exists (
+                select 1
+                from jsonb_array_elements_text(meta->'markets') mk
+                where mk ilike ${pattern}
+              )
+            )
+          order by note_created_at desc
+          limit ${params.limit}
+        `;
+        hits.push(...rows);
+      }
+
+      if (params.matchMode === "all" && params.terms.length > 1) {
+        const byNote = new Map<string, Set<string>>();
+        for (const hit of hits) {
+          const matched = byNote.get(hit.source_id) ?? new Set<string>();
+          matched.add(hit.matched_term.toLowerCase());
+          byNote.set(hit.source_id, matched);
+        }
+        const required = new Set(params.terms.map((term) => term.toLowerCase()));
+        const filtered = hits.filter((hit) => {
+          const matched = byNote.get(hit.source_id);
+          if (!matched) return false;
+          for (const term of required) {
+            if (!matched.has(term)) return false;
+          }
+          return true;
+        });
+        return filtered.slice(0, params.limit).map((row) => ({
+          noteId: row.source_id,
+          startupId: row.startup_id,
+          authorEmail: row.author_email,
+          noteCreatedAt: row.note_created_at,
+          chunkKind: row.chunk_kind as GrepIndexMetaHit["chunkKind"],
+          chunkText: row.chunk_text,
+          matchedField: row.matched_field,
+          matchedTerm: row.matched_term,
+        }));
+      }
+
+      const deduped = new Map<string, MetaRow>();
+      for (const hit of hits) {
+        const key = `${hit.source_id}:${hit.matched_field}:${hit.matched_term.toLowerCase()}`;
+        if (!deduped.has(key)) {
+          deduped.set(key, hit);
+        }
+      }
+
+      return [...deduped.values()]
+        .slice(0, params.limit)
+        .map((row) => ({
+          noteId: row.source_id,
+          startupId: row.startup_id,
+          authorEmail: row.author_email,
+          noteCreatedAt: row.note_created_at,
+          chunkKind: row.chunk_kind as GrepIndexMetaHit["chunkKind"],
+          chunkText: row.chunk_text,
+          matchedField: row.matched_field,
+          matchedTerm: row.matched_term,
+        }));
     },
 
     // --- Meetings ---

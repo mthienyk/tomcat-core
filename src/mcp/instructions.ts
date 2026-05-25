@@ -41,15 +41,17 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 
 7. **Contact enrichment** — Only call enrichment tools when the user confirms the deal is qualified.
 
-8. **M1/M2 prep (Élie)** — Semantic memory workflow:
+8. **M1/M2 prep (Élie)** — Prefer \`prepare_m1_meeting_brief\` for natural-language M1 prep
+   (generates searchTexts server-side from deck + profile). Manual chain when refining:
    - \`resolve_entity\` if a reference company is known
    - Choose mode: product wedge → \`find_similar_cases\` with \`chunkKind: recap\`;
      judgment profile → \`chunkKind: investment_lens\`
    - Write 1–2 \`searchTexts\` as **refined excerpts** (operational vocabulary, facts +
-     judgment), not user questions or industry jargon. Prefer \`noteId\` or \`startupId\`
-     anchor when available.
+     judgment), not user questions or industry jargon. Golden templates: payroll Silae/PayFit,
+     HR SMB GPEC, proptech Pinql-style (see tool description).
    - Call \`find_similar_cases\` **without** \`authorEmail\` first; inspect
      \`regimeSignals\` and \`qualitySignals\` (ignore top 1 if \`noisyTopMatch\`)
+   - \`grep_crm_notes\` on competitor proper nouns (Rosaly, PayFit, Workelo)
    - \`read_startup_notes\` on top 2–3 matches; add \`authorEmail=elie.dupredesaintmaur@tomcat.eu\`
      when Élie's perspective is needed
    - \`find_competitive_history\` only as a broad sector-tag complement, not for wedge search
@@ -67,9 +69,10 @@ ${signalHubWorkflowRow}
 | Competitive context | find_similar_cases(chunkKind recap) → read_startup_notes on top matches |
 | Semantic CRM memory | find_similar_cases(searchTexts, startupId) → read_startup_notes on top matches |
 | Keyword CRM search | grep_crm_notes(query, matchMode) → read_startup_notes on hits |
-| M1 prep (Élie) | resolve_entity → find_latest_deck → find_similar_cases(searchTexts, chunkKind recap) → read_startup_notes (authorEmail Élie on matches) |
+| M1 prep (Élie) | resolve_entity → prepare_m1_meeting_brief → read_startup_notes (authorEmail Élie on matches) |
+| M1 prep (manual) | resolve_entity → find_latest_deck → find_similar_cases(searchTexts, chunkKind recap) → grep_crm_notes(competitors) → read_startup_notes |
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |
-| Business Plan (BP) | read_bp_playbook → resolve_entity → assemble_company_finance_pack → draft_bp_tab_debt |
+| Business Plan (BP) | read_bp_playbook → resolve_entity → assemble_company_finance_pack → restructure_founder_bp → export_business_plan |
 
 ## Business Plan (BP) workflows
 
@@ -82,13 +85,16 @@ Call \`read_bp_playbook\` before any BP task. It defines the Tomcat template, th
 - **generate** (~15%) — only inputs (DSN export, loans, history); fill template from scratch
 - **hybrid** (~15%) — founder BP + fresh payroll/debt inputs to overlay
 
-**Chain today:** playbook → entity → \`assemble_company_finance_pack\` → \`draft_bp_tab_debt\` (Financement slice).
-Folder browse: \`resolve_company_drive_folder\` (bp_inputs), \`list_company_documents\`, \`read_company_document_excerpt\`.
-**Planned:** \`restructure_founder_bp\`, \`draft_business_plan\`, other \`draft_bp_tab_*\`, \`export_business_plan\`
-(approval required). Do not claim a BP is exported until \`export_business_plan\` succeeds.
+**Chain:** playbook → entity → \`assemble_company_finance_pack\` → \`restructure_founder_bp\`
+→ Guillaume review → \`export_business_plan\` (confirmed: true).
+Tab slices: \`draft_bp_tab_debt\`, \`draft_bp_tab_payroll\`, \`draft_bp_tab_revenue\`.
+Always pass \`driveTokens\` from resolve_entity on every BP tool when provided.
+Folder browse: \`resolve_company_drive_folder\` (bp_inputs), \`list_company_documents\`.
+Do not claim a BP is exported until \`export_business_plan\` succeeds with confirmed: true.
 
 **Pitfalls:** « BP Tomcat » in a filename ≠ canonical template; \`find_latest_deck\` prefers pitch
 decks over financial models; M2 analysis workbooks are not operational BPs.
+AACE / charges d'exploitation and custom revenue patterns require manualReviewTabs review.
 
 ## Connectors
 

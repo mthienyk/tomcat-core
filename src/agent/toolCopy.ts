@@ -128,10 +128,14 @@ export const TOOL_DESCRIPTIONS = {
       "Bad: \"Quelles boîtes similaires avons-nous vues?\" (question format). Bad: dense text with industry jargon unrelated to how Tomcat notes are written.",
       "chunkKind recap — product/feature similarity (same wedge). Default for product questions.",
       "chunkKind investment_lens — Tomcat judgment profile similarity (early-stage, burn, valo vs ARR). May return cross-sector matches; not for product wedge search.",
-      "noteId — embed a known note body (note_anchor); highest-quality path when available.",
+      "noteId — embed indexed recap + investment_lens chunks (note_anchor); falls back to raw body if not indexed yet.",
       "startupId — exclude reference company; prefer this over searchTexts alone when reference is known.",
       "query — fallback direct embed without client-side rewriting.",
       "Do NOT pass authorEmail on the first call — search broadly, then read_startup_notes with authorEmail for Élie perspective.",
+      "TEMPLATE payroll recap: \"NessPay-style SaaS paie intégrée Silae/PayFit, distribution via cabinets comptables, avance sur salaire PME. Connecteurs paie natifs, churn et NRR par cohorte.\"",
+      "TEMPLATE HR SMB recap: \"HR Tech SaaS entretiens annuels et GPEC pour PME/ETI blue-collar. Churn très faible, contrats upfront multi-années, CVR demo faible.\"",
+      "TEMPLATE proptech recap: \"Pinql-style app gestion locative pour proprio particuliers et foncières. Bail digital, mandataire B2C, wedge B2B foncières au nb de lots.\"",
+      "Prefer prepare_m1_meeting_brief when Élie asks for M1 prep in natural language — it generates searchTexts server-side.",
       "sinceDays — optional recency window",
     ],
     output: [
@@ -156,22 +160,21 @@ export const TOOL_DESCRIPTIONS = {
 
   grep_crm_notes: meta({
     summary:
-      "Keyword search over raw HubSpot note bodies in the local read model "
-      + "(case-insensitive substring match). Complements find_similar_cases vector search.",
+      "Keyword search over HubSpot note bodies plus indexed semantic metadata "
+      + "(competitorNames, markets). Complements find_similar_cases vector search.",
     whenToUse: [
-      "Find exact mentions: product names, tools (Silae, PayFit), metrics, acronyms",
-      "When semantic search misses because searchTexts are misaligned or the term is rare in refined excerpts",
-      "Audit who wrote about a topic across the portfolio",
+      "Find exact mentions: product names, tools (Silae, PayFit, Rosaly), metrics",
+      "When semantic search misses because searchTexts are misaligned",
+      "Competitor names extracted from a deck or prepare_m1_meeting_brief",
     ],
     inputTips: [
       "query — space-separated terms; use quotes for phrases (\"gestion locative\")",
       "matchMode all (default) — every term must appear; any — at least one term",
-      "startupId / startupName — scope to one company; omit to search all accessible startups",
-      "authorEmail — filter to one author after ACL",
-      "sinceDays — recency window on note createdAt",
+      "Prefer proper nouns alone (Rosaly, PayFit) over ambiguous French (avance, paie) in any mode",
+      "Also searches index meta competitorNames/markets when note body has no hit",
     ],
     output: [
-      "matches[] with noteId, startupId, authorEmail, createdAt, excerpt around first hit",
+      "matches[] with noteId, matchSource (note_body | index_meta), matchedField when index_meta",
       "Full bodies via read_startup_notes on selected noteId",
     ],
     nextTools: [
@@ -180,9 +183,48 @@ export const TOOL_DESCRIPTIONS = {
     ],
     limitations: [
       "Substring match only — no stemming or fuzzy match yet",
-      "Searches raw note bodies, not semantic recap/investment_lens chunks",
+      "Ambiguous French terms filtered in matchMode any when combined with other terms",
     ],
     sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  prepare_m1_meeting_brief: meta({
+    summary:
+      "Orchestrated M1 prep brief for Élie: deck excerpt + LLM-generated searchTexts, "
+      + "semantic similar cases, competitor keyword grep, existing CRM highlights.",
+    whenToUse: [
+      "Élie prepares an M1 tomorrow and asks for similar companies / competitive memory",
+      "Natural-language M1 prep without hand-writing searchTexts",
+      "After resolve_entity when startupId is known",
+    ],
+    prerequisites: [
+      "resolve_entity when company name is ambiguous",
+      "Semantic CRM index (find_similar_cases)",
+    ],
+    inputTips: [
+      "startupId or startupName (required)",
+      "oralContext — optional 4–5 prep angles Élie identified orally before the call",
+      "sinceDays — default 1095 (~3 years)",
+      "similarLimit — default 5 semantic matches",
+    ],
+    output: [
+      "generatedSearchTexts — server-side recap-style excerpts used for vector search",
+      "similarCases — same shape as find_similar_cases",
+      "competitorGrep — keyword hits per competitor hint",
+      "prepAngles — suggested diligence angles",
+      "existingCrmHighlights — prior notes on this startup",
+    ],
+    nextTools: [
+      { name: "read_startup_notes", when: "Full Élie notes on top similar match" },
+      { name: "find_similar_cases", when: "Refine with manual searchTexts if regimeSignals low" },
+    ],
+    limitations: [
+      "Deck optional — brief proceeds with CRM + profile if Drive deck missing",
+      "searchTexts quality depends on deck excerpt and LLM availability",
+    ],
+    sources: ["hubspot", "drive"],
     access: "confidential",
     approvalRequired: false,
   }),

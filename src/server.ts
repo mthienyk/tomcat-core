@@ -38,6 +38,7 @@ import type { CrmMemoryIndexWorker } from "./sync/crmMemoryIndexWorker.js";
 import { resolveCrmMemorySemanticLlm } from "./services/crmMemory/semanticLlm.js";
 import { buildSimilarCasesService } from "./services/crmMemory/similarCases.js";
 import { buildGrepCrmNotesService } from "./services/crmMemory/grepCrmNotes.js";
+import { buildM1MeetingBriefService } from "./services/crmMemory/m1MeetingBrief.js";
 import { errorHandler } from "./api/errorHandler.js";
 import { registerHealthRoutes } from "./api/routes/health.js";
 import { registerMeRoutes } from "./api/routes/me.js";
@@ -237,8 +238,10 @@ export const buildServer = async (
 
   let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
   let grepCrmNotes: ReturnType<typeof buildGrepCrmNotesService> | undefined;
+  let m1MeetingBrief: ReturnType<typeof buildM1MeetingBriefService> | undefined;
   let crmMemoryIndexTimer: ReturnType<typeof setInterval> | undefined;
   let crmMemoryWorker: CrmMemoryIndexWorker | undefined;
+  let crmMemorySemanticLlm: ReturnType<typeof resolveCrmMemorySemanticLlm> | undefined;
 
   if (coreStore && embeddingRegistry.defaultProvider()) {
     similarCases = buildSimilarCasesService({
@@ -256,8 +259,21 @@ export const buildServer = async (
   }
 
   if (coreStore && llmRegistry.hasAnyProvider()) {
-    const semanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
+    crmMemorySemanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
+  }
 
+  if (coreStore && similarCases) {
+    m1MeetingBrief = buildM1MeetingBriefService({
+      startups,
+      findLatestDeck,
+      companyActivitySummary,
+      similarCases,
+      grepCrmNotes,
+      semanticLlm: crmMemorySemanticLlm,
+    });
+  }
+
+  if (coreStore && crmMemorySemanticLlm) {
     crmMemoryWorker = createCrmMemoryIndexWorker({
       store: coreStore,
       connectors,
@@ -267,7 +283,7 @@ export const buildServer = async (
         enabled: config.crmMemory.indexEnabled,
         batchSize: config.crmMemory.indexBatchSize,
         concurrency: config.crmMemory.indexConcurrency,
-        semanticLlm,
+        semanticLlm: crmMemorySemanticLlm,
       },
     });
 
@@ -383,6 +399,7 @@ export const buildServer = async (
         portfolioCompanies,
         similarCases,
         grepCrmNotes,
+        m1MeetingBrief,
       },
       auditor,
       auth,
@@ -441,6 +458,7 @@ export const buildServer = async (
       portfolioCompanies,
       similarCases,
       grepCrmNotes,
+      m1MeetingBrief,
       auditor,
     });
     registerAiRoutes(app, auth, ai);

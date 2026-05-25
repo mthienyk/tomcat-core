@@ -17,6 +17,8 @@ import type {
   SyncQueueStats,
 } from "../domain/syncQueue.js";
 import type {
+  CrmMemoryChunkKind,
+  CrmMemorySemanticCard,
   KnowledgeChunkSearchHit,
   KnowledgeChunkSearchParams,
   KnowledgeIndexChunkInput,
@@ -34,6 +36,28 @@ export type GrepNotesParams = {
 export type GrepNoteStoreHit = {
   note: Note;
   startupName: string | undefined;
+};
+
+export type IndexedNoteChunkRecord = {
+  chunkId: string;
+  noteId: string;
+  startupId: string;
+  chunkKind: CrmMemoryChunkKind;
+  chunkText: string;
+  authorEmail: string;
+  noteCreatedAt: string;
+  meta: CrmMemorySemanticCard;
+};
+
+export type GrepIndexMetaHit = {
+  noteId: string;
+  startupId: string;
+  authorEmail: string;
+  noteCreatedAt: string;
+  chunkKind: CrmMemoryChunkKind;
+  chunkText: string;
+  matchedField: "competitorNames" | "markets" | "chunkText";
+  matchedTerm: string;
 };
 
 export type SyncStatus = "running" | "success" | "failed";
@@ -92,6 +116,12 @@ export interface CoreStore {
   listNotesPendingIndex(limit: number): Promise<Note[]>;
   markNoteIndexed(noteId: string, contentHash: string): Promise<void>;
   grepNotes(params: GrepNotesParams): Promise<GrepNoteStoreHit[]>;
+  listKnowledgeChunksForNote(
+    noteId: string,
+  ): Promise<IndexedNoteChunkRecord[]>;
+  grepKnowledgeIndexMeta(
+    params: GrepNotesParams,
+  ): Promise<GrepIndexMetaHit[]>;
 
   // CRM semantic memory index
   replaceKnowledgeChunksForNote(

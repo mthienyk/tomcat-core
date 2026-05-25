@@ -1,6 +1,35 @@
 const MIN_TERM_LENGTH = 2;
 const MAX_TERMS = 10;
 
+/** French terms too ambiguous for matchMode any (match many unrelated notes). */
+const GREP_AMBIGUOUS_TERMS_FR = new Set([
+  "avance",
+  "avances",
+  "salaire",
+  "salaires",
+  "paie",
+  "paiement",
+  "paiements",
+  "mois",
+  "rh",
+  "hrtech",
+  "hr",
+]);
+
+export const filterGrepTerms = (
+  terms: readonly string[],
+  matchMode: "all" | "any",
+): string[] => {
+  if (matchMode === "all" || terms.length <= 1) {
+    return [...terms];
+  }
+
+  const filtered = terms.filter(
+    (term) => !GREP_AMBIGUOUS_TERMS_FR.has(term.toLowerCase()),
+  );
+  return filtered.length > 0 ? filtered : [...terms];
+};
+
 export const escapeIlikePattern = (value: string): string =>
   value.replace(/[%_\\]/g, (char) => `\\${char}`);
 

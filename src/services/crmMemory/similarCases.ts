@@ -20,6 +20,7 @@ import type { EmbeddingProvider } from "../../llm/embeddings/types.js";
 import type { StartupsService } from "../startups.js";
 import { canSeeNote } from "../../permissions/policies.js";
 import { matchesAuthorEmail } from "../noteRanking.js";
+import { resolveNoteAnchorQueryTexts } from "./noteAnchorTexts.js";
 import {
   applyNoteQualityBoost,
   buildSearchQualitySignals,
@@ -251,7 +252,24 @@ export const buildSimilarCasesService = (deps: {
         if (!canSeeNote(caller, note)) {
           throw BadRequest(`Note "${args.noteId}" is not visible to this caller.`);
         }
-        queryTexts = [note.body.slice(0, 2000)];
+        const indexedChunks = await store.listKnowledgeChunksForNote(args.noteId);
+        const anchor = resolveNoteAnchorQueryTexts({
+          chunks: indexedChunks,
+          noteBody: note.body,
+        });
+        if (anchor.queryTexts.length === 0) {
+          throw BadRequest(`Note "${args.noteId}" has no searchable body content.`);
+        }
+        queryTexts = anchor.queryTexts;
+        if (!anchor.usedIndexedChunks) {
+          warnings.push({
+            code: ToolWarningCodes.NO_SIMILAR_CASES,
+            message:
+              "Note anchor used raw HubSpot body because indexed recap/lens chunks are missing.",
+            mitigation:
+              "Wait for the indexing worker or use searchTexts written in recap/investment_lens style.",
+          });
+        }
       } else if (args.searchTexts !== undefined) {
         queryTexts = normalizeSearchTexts(args.searchTexts);
         if (queryTexts.length === 0) {
