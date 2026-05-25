@@ -108,6 +108,11 @@ if hubspot_webhook_secret:
 
 state = read_env(Path(state_file))
 pn_id = state.get("PRIVATE_NETWORK_ID", "")
+if not pn_id:
+    raise SystemExit(
+        f"Missing PRIVATE_NETWORK_ID in {state_file}. "
+        "Run provision-infra or copy from an existing container before deploy."
+    )
 
 ns_json = subprocess.check_output(
     ["scw", "container", "namespace", "list", f"region={region}", "-o", "json"],
