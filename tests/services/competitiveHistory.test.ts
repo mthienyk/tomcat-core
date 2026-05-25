@@ -138,6 +138,52 @@ describe("competitiveHistory service", () => {
     expect(result.warnings[0]?.code).toBe("NO_SECTOR_MATCHES");
   });
 
+  it("passes authorEmail filter and ranks M1 notes above recent short notes", async () => {
+    const startups = {
+      searchStartups: vi.fn().mockResolvedValue([refStartup]),
+      findSimilar: vi.fn().mockResolvedValue([peerStartup]),
+      listAccessibleNotes: vi.fn().mockResolvedValue([
+        {
+          id: "note_short",
+          body: "Quick ping after call.",
+          sensitivity: "internal",
+          createdAt: "2026-05-20T10:00:00Z",
+          startupId: "hs_peer",
+          authorEmail: "elie.dupredesaintmaur@tomcat.eu",
+          source: { system: "hubspot", externalId: "note_short" },
+        },
+        {
+          id: "note_m1",
+          body: "M1 — competitive with legacy HR suites on payroll.",
+          sensitivity: "internal",
+          createdAt: "2024-03-01T10:00:00Z",
+          startupId: "hs_peer",
+          authorEmail: "elie.dupredesaintmaur@tomcat.eu",
+          source: { system: "hubspot", externalId: "note_m1" },
+        },
+      ]),
+    };
+
+    const service = buildCompetitiveHistoryService({ startups: startups as never });
+    const result = await service.findCompetitiveHistory(caller, {
+      startupId: "hs_ref",
+      authorEmail: "elie.dupredesaintmaur@tomcat.eu",
+      notesPerMatch: 1,
+    });
+
+    expect(startups.listAccessibleNotes).toHaveBeenCalledWith(
+      caller,
+      "hs_peer",
+      expect.objectContaining({
+        authorEmail: "elie.dupredesaintmaur@tomcat.eu",
+      }),
+    );
+    expect(result.data.matches[0]?.recentNotes[0]?.id).toBe("note_m1");
+    expect(result.data.matches[0]?.recentNotes[0]?.authorEmail).toBe(
+      "elie.dupredesaintmaur@tomcat.eu",
+    );
+  });
+
   it("falls back to sector when startupId is unknown and does not warn REFERENCE_NOT_FOUND", async () => {
     const startups = {
       searchStartups: vi.fn().mockResolvedValue([]),

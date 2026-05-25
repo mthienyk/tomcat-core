@@ -93,6 +93,7 @@ const fakeServices = (): AgentToolServices =>
     portfolioCompanies: {
       listPortfolioCompanies: vi.fn(),
     },
+    similarCases: undefined,
   }) as unknown as AgentToolServices;
 
 describe("runAgentLoop", () => {

@@ -10,10 +10,7 @@ import type {
   LlmStopReason,
   LlmStructuredRequest,
 } from "../types.js";
-import {
-  parseStructuredOutput,
-  structuredOutputInstruction,
-} from "../structured.js";
+import { zodResponseFormat } from "openai/helpers/zod";
 
 const DEFAULT_MODEL = "gpt-5.5";
 
@@ -109,21 +106,30 @@ export const createOpenAIProvider = (apiKey: string): LlmProvider => {
       req: LlmStructuredRequest<TSchema>,
     ) => {
       try {
-        const resp = await client.chat.completions.create({
+        const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
           model: req.model ?? DEFAULT_MODEL,
-          response_format: { type: "json_object" },
+          response_format: zodResponseFormat(req.schema, req.schemaName),
           max_completion_tokens: req.maxTokens ?? 1024,
           messages: [
-            {
-              role: "system",
-              content: `${req.system}\n\n${structuredOutputInstruction(req.schemaName)}`,
-            },
+            { role: "system", content: req.system },
             { role: "user", content: req.user },
           ],
-        });
-        const text = resp.choices[0]?.message?.content ?? "";
-        if (!text) throw LlmFailed("Empty response from OpenAI");
-        return parseStructuredOutput(req.schema, text);
+        };
+        if (req.reasoningEffort !== undefined) {
+          // gpt-5* models accept "minimal"; OpenAI SDK types may lag the API.
+          (params as { reasoning_effort?: string }).reasoning_effort =
+            req.reasoningEffort;
+        }
+
+        const resp = await client.beta.chat.completions.parse(params);
+        const parsed = resp.choices[0]?.message?.parsed;
+        if (parsed) {
+          return parsed;
+        }
+        const refusal = resp.choices[0]?.message?.refusal;
+        throw LlmFailed(
+          refusal ?? "OpenAI structured output did not match schema",
+        );
       } catch (err) {
         if (err instanceof Error && err.name === "CoreError") throw err;
         throw LlmFailed("OpenAI call failed", {

@@ -15,6 +15,7 @@
     "lint": "eslint . --ext .ts",
     "simulate:agent": "tsx scripts/simulateAgent.ts",
     "mcp:stdio": "tsx scripts/mcpServer.ts",
+    "crm:index-status": "tsx scripts/crmMemoryIndexStatus.ts",
     "auth:google": "tsx scripts/googleLogin.ts",
     "auth:status": "tsx scripts/googleAuthStatus.ts",
     "auth:token": "tsx scripts/authToken.ts",

@@ -110,6 +110,37 @@ const EnvSchema = z.object({
     .positive()
     .default(6 * 60 * 60_000),
   SYNC_RECONCILE_LOOKBACK_MS: z.coerce.number().int().nonnegative().default(300_000),
+
+  CRM_MEMORY_INDEX_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  CRM_MEMORY_INDEX_BATCH_SIZE: z.coerce.number().int().positive().max(100).default(20),
+  CRM_MEMORY_INDEX_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(50)
+    .default(20),
+  CRM_MEMORY_INDEX_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30_000),
+  CRM_MEMORY_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  CRM_MEMORY_EMBEDDING_DIMENSIONS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(3072)
+    .default(1536),
+  CRM_MEMORY_SEMANTIC_PROVIDER: z
+    .enum(["anthropic", "openai", "google"])
+    .optional(),
+  CRM_MEMORY_SEMANTIC_MODEL: z.string().optional(),
+  CRM_MEMORY_REASONING_EFFORT: z
+    .enum(["minimal", "low", "medium", "high"])
+    .default("minimal"),
 });
 
 export type RawEnv = z.infer<typeof EnvSchema>;
@@ -178,6 +209,17 @@ export type AppConfig = {
     queueRetryDelayMs: number;
     reconcileIntervalMs: number;
     reconcileLookbackMs: number;
+  };
+  crmMemory: {
+    indexEnabled: boolean;
+    indexBatchSize: number;
+    indexConcurrency: number;
+    indexIntervalMs: number;
+    embeddingModel: string;
+    embeddingDimensions: number;
+    semanticProvider: "anthropic" | "openai" | "google" | undefined;
+    semanticModel: string | undefined;
+    reasoningEffort: "minimal" | "low" | "medium" | "high";
   };
 };
 
@@ -264,6 +306,17 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
       queueRetryDelayMs: parsed.SYNC_QUEUE_RETRY_DELAY_MS,
       reconcileIntervalMs: parsed.SYNC_RECONCILE_INTERVAL_MS,
       reconcileLookbackMs: parsed.SYNC_RECONCILE_LOOKBACK_MS,
+    },
+    crmMemory: {
+      indexEnabled: parsed.CRM_MEMORY_INDEX_ENABLED,
+      indexBatchSize: parsed.CRM_MEMORY_INDEX_BATCH_SIZE,
+      indexConcurrency: parsed.CRM_MEMORY_INDEX_CONCURRENCY,
+      indexIntervalMs: parsed.CRM_MEMORY_INDEX_INTERVAL_MS,
+      embeddingModel: parsed.CRM_MEMORY_EMBEDDING_MODEL,
+      embeddingDimensions: parsed.CRM_MEMORY_EMBEDDING_DIMENSIONS,
+      semanticProvider: parsed.CRM_MEMORY_SEMANTIC_PROVIDER,
+      semanticModel: parsed.CRM_MEMORY_SEMANTIC_MODEL,
+      reasoningEffort: parsed.CRM_MEMORY_REASONING_EFFORT,
     },
   };
 };

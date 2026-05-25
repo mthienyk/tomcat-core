@@ -196,6 +196,34 @@ payload = {
                 f"{oauth_issuer_url}/webhooks/hubspot",
             ),
         ),
+        "CRM_MEMORY_INDEX_ENABLED": secrets.get(
+            "CRM_MEMORY_INDEX_ENABLED",
+            env.get("CRM_MEMORY_INDEX_ENABLED", "true"),
+        ),
+        "CRM_MEMORY_INDEX_BATCH_SIZE": secrets.get(
+            "CRM_MEMORY_INDEX_BATCH_SIZE",
+            env.get("CRM_MEMORY_INDEX_BATCH_SIZE", "20"),
+        ),
+        "CRM_MEMORY_INDEX_CONCURRENCY": secrets.get(
+            "CRM_MEMORY_INDEX_CONCURRENCY",
+            env.get("CRM_MEMORY_INDEX_CONCURRENCY", "20"),
+        ),
+        "CRM_MEMORY_INDEX_INTERVAL_MS": secrets.get(
+            "CRM_MEMORY_INDEX_INTERVAL_MS",
+            env.get("CRM_MEMORY_INDEX_INTERVAL_MS", "30000"),
+        ),
+        "CRM_MEMORY_SEMANTIC_PROVIDER": secrets.get(
+            "CRM_MEMORY_SEMANTIC_PROVIDER",
+            env.get("CRM_MEMORY_SEMANTIC_PROVIDER", "openai"),
+        ),
+        "CRM_MEMORY_SEMANTIC_MODEL": secrets.get(
+            "CRM_MEMORY_SEMANTIC_MODEL",
+            env.get("CRM_MEMORY_SEMANTIC_MODEL", "gpt-5-mini"),
+        ),
+        "CRM_MEMORY_REASONING_EFFORT": secrets.get(
+            "CRM_MEMORY_REASONING_EFFORT",
+            env.get("CRM_MEMORY_REASONING_EFFORT", "minimal"),
+        ),
     },
     "secret_environment_variables": [
         {"key": key, "value": value} for key, value in required.items()

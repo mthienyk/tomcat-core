@@ -36,9 +36,18 @@ import type {
   SyncQueueJob,
   SyncQueueStats,
 } from "../domain/syncQueue.js";
+import type {
+  CrmMemorySemanticCard,
+  KnowledgeChunkSearchHit,
+  KnowledgeChunkSearchParams,
+  KnowledgeIndexChunkInput,
+} from "../domain/crmMemory.js";
 import { buildHubspotActivityDedupeKey } from "../domain/syncQueue.js";
 
 const now = (): string => new Date().toISOString();
+
+const toVectorLiteral = (embedding: number[]): string =>
+  `[${embedding.join(",")}]`;
 
 // --- Row types (snake_case columns from Postgres) ---
 
@@ -380,6 +389,13 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       return rows.map(mapStartup);
     },
 
+    async getStartupById(id: string): Promise<Startup | undefined> {
+      const rows = await db<StartupRow[]>`
+        select * from startups where id = ${id}
+      `;
+      return rows[0] ? mapStartup(rows[0]) : undefined;
+    },
+
     // --- Investors ---
     async upsertInvestor(inv: Investor): Promise<void> {
       const t = now();
@@ -495,7 +511,38 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
           sensitivity = excluded.sensitivity,
           created_at = excluded.created_at,
           source = excluded.source,
-          synced_at = excluded.synced_at
+          synced_at = excluded.synced_at,
+          semantic_index_hash = case
+            when notes.body is distinct from excluded.body then null
+            else notes.semantic_index_hash
+          end
+      `;
+    },
+
+    async getNoteById(id: string): Promise<Note | undefined> {
+      const rows = await db<NoteRow[]>`
+        select * from notes where id = ${id}
+      `;
+      return rows[0] ? mapNote(rows[0]) : undefined;
+    },
+
+    async listNotesPendingIndex(limit: number): Promise<Note[]> {
+      const rows = await db<NoteRow[]>`
+        select * from notes
+        where startup_id is not null
+          and char_length(body) >= 100
+          and semantic_index_hash is null
+        order by created_at desc
+        limit ${limit}
+      `;
+      return rows.map(mapNote);
+    },
+
+    async markNoteIndexed(noteId: string, contentHash: string): Promise<void> {
+      await db`
+        update notes
+        set semantic_index_hash = ${contentHash}
+        where id = ${noteId}
       `;
     },
 
@@ -971,6 +1018,119 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
           cursor_value = excluded.cursor_value,
           updated_at = excluded.updated_at
       `;
+    },
+
+    async replaceKnowledgeChunksForNote(
+      noteId: string,
+      chunks: KnowledgeIndexChunkInput[],
+    ): Promise<void> {
+      const t = now();
+      await db.begin(async (tx) => {
+        await tx`
+          delete from knowledge_index_chunks
+          where source_kind = 'hubspot_note' and source_id = ${noteId}
+        `;
+        for (const chunk of chunks) {
+          const embeddingSql =
+            chunk.embedding !== undefined
+              ? tx.unsafe(`'${toVectorLiteral(chunk.embedding)}'::vector`)
+              : null;
+          await tx`
+            insert into knowledge_index_chunks (
+              id, source_kind, source_id, parent_kind, parent_id,
+              chunk_idx, chunk_kind, chunk_text, content_hash, meta,
+              indexed_at, embedding_model, semantic_model, semantic_schema_version,
+              startup_id, author_email, note_created_at, embedding, created_at, updated_at
+            )
+            values (
+              ${chunk.id}, ${chunk.sourceKind}, ${chunk.sourceId},
+              ${"startup"}, ${chunk.startupId},
+              ${chunk.chunkIdx}, ${chunk.chunkKind}, ${chunk.chunkText},
+              ${chunk.contentHash}, ${tx.json(chunk.meta)},
+              ${t}, ${chunk.embeddingModel ?? null}, ${chunk.semanticModel ?? null},
+              ${chunk.semanticSchemaVersion}, ${chunk.startupId},
+              ${chunk.authorEmail}, ${chunk.noteCreatedAt},
+              ${embeddingSql}, ${t}, ${t}
+            )
+          `;
+        }
+      });
+    },
+
+    async searchKnowledgeChunks(
+      params: KnowledgeChunkSearchParams,
+    ): Promise<KnowledgeChunkSearchHit[]> {
+      const vectorLiteral = toVectorLiteral(params.queryEmbedding);
+      const sinceCutoff =
+        params.sinceDays !== undefined
+          ? new Date(
+              Date.now() - params.sinceDays * 86_400_000,
+            ).toISOString()
+          : undefined;
+      const authorPattern =
+        params.authorEmail !== undefined
+          ? `%${params.authorEmail.trim().toLowerCase()}%`
+          : undefined;
+
+      type SearchRow = {
+        id: string;
+        source_id: string;
+        startup_id: string;
+        chunk_kind: string;
+        chunk_text: string;
+        author_email: string;
+        note_created_at: string;
+        meta: CrmMemorySemanticCard;
+        score: number;
+      };
+
+      const rows = await db<SearchRow[]>`
+        select
+          id,
+          source_id,
+          startup_id,
+          chunk_kind,
+          chunk_text,
+          author_email,
+          note_created_at,
+          meta,
+          1 - (embedding <=> ${vectorLiteral}::vector) as score
+        from knowledge_index_chunks
+        where embedding is not null
+          and source_kind = 'hubspot_note'
+          ${params.chunkKind !== undefined ? db`and chunk_kind = ${params.chunkKind}` : db``}
+          ${authorPattern !== undefined ? db`and lower(author_email) like ${authorPattern}` : db``}
+          ${params.excludeStartupId !== undefined ? db`and startup_id <> ${params.excludeStartupId}` : db``}
+          ${sinceCutoff !== undefined ? db`and note_created_at >= ${sinceCutoff}` : db``}
+          ${
+            params.sectorStartupIds !== undefined && params.sectorStartupIds.length > 0
+              ? db`and startup_id = any(${params.sectorStartupIds})`
+              : db``
+          }
+        order by embedding <=> ${vectorLiteral}::vector
+        limit ${params.limit}
+      `;
+
+      return rows.map((row) => ({
+        chunkId: row.id,
+        noteId: row.source_id,
+        startupId: row.startup_id,
+        chunkKind: row.chunk_kind as KnowledgeChunkSearchHit["chunkKind"],
+        chunkText: row.chunk_text,
+        score: row.score,
+        authorEmail: row.author_email,
+        noteCreatedAt: row.note_created_at,
+        meta: row.meta,
+      }));
+    },
+
+    async countIndexedKnowledgeChunks(): Promise<number> {
+      const rows = await db<{ count: string }[]>`
+        select count(*)::text as count
+        from knowledge_index_chunks
+        where indexed_at is not null and embedding is not null
+      `;
+      return parseInt(rows[0]?.count ?? "0", 10);
     },
 
     // --- Users ---

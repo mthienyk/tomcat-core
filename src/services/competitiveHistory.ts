@@ -1,6 +1,6 @@
 import { BadRequest } from "../errors/index.js";
 import type { Identity } from "../domain/identity.js";
-import type { Startup } from "../domain/entities.js";
+import type { Note, Startup } from "../domain/entities.js";
 import {
   ToolWarningCodes,
   wrapToolOutput,
@@ -8,6 +8,7 @@ import {
   type ToolWarning,
 } from "../domain/mcpToolOutput.js";
 import type { StartupsService } from "./startups.js";
+import { rankNotesByQuality } from "./noteRanking.js";
 
 export type CompetitiveHistoryMatch = {
   startupId: string;
@@ -17,6 +18,7 @@ export type CompetitiveHistoryMatch = {
   recentNotes: Array<{
     id: string;
     excerpt: string;
+    authorEmail: string;
     sensitivity: string;
     createdAt: string;
   }>;
@@ -38,6 +40,9 @@ export const buildCompetitiveHistoryService = (deps: {
 }) => {
   const { startups } = deps;
 
+  const selectRankedNotes = (notes: Note[], notesLimit: number): Note[] =>
+    rankNotesByQuality(notes).slice(0, notesLimit);
+
   return {
     findCompetitiveHistory: async (
       caller: Identity,
@@ -47,6 +52,7 @@ export const buildCompetitiveHistoryService = (deps: {
         sector?: string;
         limit?: number;
         notesPerMatch?: number;
+        authorEmail?: string;
       },
     ) => {
       const hasSeed =
@@ -60,7 +66,8 @@ export const buildCompetitiveHistoryService = (deps: {
       }
 
       const matchLimit = Math.min(args.limit ?? 10, 25);
-      const notesLimit = Math.min(args.notesPerMatch ?? 3, 10);
+      const notesLimit = Math.min(args.notesPerMatch ?? 5, 10);
+      const notesFetchLimit = Math.min(Math.max(notesLimit * 5, 25), 50);
       const warnings: ToolWarning[] = [];
 
       let referenceStartup: Startup | undefined;
@@ -139,22 +146,27 @@ export const buildCompetitiveHistoryService = (deps: {
       const matches: CompetitiveHistoryMatch[] = await Promise.all(
         similar.map(async (startup) => {
           const notes = await startups.listAccessibleNotes(caller, startup.id, {
-            limit: notesLimit,
+            limit: notesFetchLimit,
+            ...(args.authorEmail !== undefined
+              ? { authorEmail: args.authorEmail }
+              : {}),
           });
           const sharedSectors = startup.sectors.filter((sec) =>
             refSectors.some((ref) => ref.toLowerCase() === sec.toLowerCase()),
           );
+          const rankedNotes = selectRankedNotes(notes, notesLimit);
           return {
             startupId: startup.id,
             name: startup.name,
             sectors: startup.sectors,
             sharedSectors,
-            recentNotes: notes.map((note) => ({
+            recentNotes: rankedNotes.map((note) => ({
               id: note.id,
               excerpt:
                 note.body.length > 400
                   ? `${note.body.slice(0, 400)}…`
                   : note.body,
+              authorEmail: note.authorEmail,
               sensitivity: note.sensitivity,
               createdAt: note.createdAt,
             })),
@@ -189,9 +201,19 @@ export const buildCompetitiveHistoryService = (deps: {
         nextSuggestedTools.push({
           toolName: "read_startup_notes",
           reason: "Read full notes for the closest historical match",
-          arguments: { startupId: topMatch.startupId },
+          arguments: {
+            startupId: topMatch.startupId,
+            ...(args.authorEmail !== undefined
+              ? { authorEmail: args.authorEmail }
+              : {}),
+          },
         });
         if (referenceStartup) {
+          nextSuggestedTools.push({
+            toolName: "find_similar_cases",
+            reason: "Find semantically similar historical cases beyond sector tags",
+            arguments: { startupId: referenceStartup.id },
+          });
           nextSuggestedTools.push({
             toolName: "list_company_crm_activity",
             reason: "Compare CRM timeline on the reference vs a match",

@@ -8,6 +8,7 @@ Documents liés :
 
 - [hubspot-sync-engine.md](./hubspot-sync-engine.md) — queue, webhooks, rate limits HubSpot
 - [mcp-work-status.md](./mcp-work-status.md) — état MCP / prod
+- [crm-notes-memory-handoff.md](./crm-notes-memory-handoff.md) — use case mémoire CRM (notes Élie, similarité, pgvector)
 - [README.md](../README.md) — CoreStore, sync workers, `DATABASE_URL`
 
 ---

@@ -2,7 +2,7 @@
 
 Dernière mise à jour : 2026-05-24 (read model seed validé)
 
-Document de handoff pour reprendre le travail sur le MCP Tomcat Core. Spec normative : [mcp-use-cases.md](./mcp-use-cases.md). Read model Postgres : [local-read-model-handoff.md](./local-read-model-handoff.md).
+Document de handoff pour reprendre le travail sur le MCP Tomcat Core. Spec normative : [mcp-use-cases.md](./mcp-use-cases.md). Read model Postgres : [local-read-model-handoff.md](./local-read-model-handoff.md). **Mémoire CRM / notes Élie** : [crm-notes-memory-handoff.md](./crm-notes-memory-handoff.md).
 
 ---
 

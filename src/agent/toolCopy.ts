@@ -68,9 +68,11 @@ export const TOOL_DESCRIPTIONS = {
   find_competitive_history: meta({
     summary:
       "Tomcat memory: list historically seen startups similar to a reference company "
-      + "or sector, with recent note excerpts. Opinionated alternative to raw sector search.",
+      + "or sector, with ranked note excerpts (M1/M2 synthesis prioritized). "
+      + "Opinionated alternative to raw sector search.",
     whenToUse: [
       "Prep M1/M2: « what similar companies have we seen? »",
+      "« Sors-moi les boîtes concurrentes qu'on a vues sur ce segment »",
       "Compare a new deal against prior HubSpot notes in the same vertical",
       "Before prepare_m1_meeting_brief (P0) for competitive so-what",
     ],
@@ -81,20 +83,62 @@ export const TOOL_DESCRIPTIONS = {
       "startupId — preferred when known from resolve_entity",
       "sector — list peers when you do not have a reference startup",
       "limit — max similar startups (default 10)",
-      "notesPerMatch — note excerpts per match (default 3)",
+      "notesPerMatch — note excerpts per match (default 5, max 10)",
+      "authorEmail — filter excerpts to one author (e.g. elie.dupredesaintmaur@tomcat.eu for Élie M1/M2 notes)",
     ],
     output: [
-      "ToolRunEnvelope with data.referenceStartup, data.matches[], note excerpts",
+      "ToolRunEnvelope with data.referenceStartup, data.matches[], note excerpts with authorEmail",
+      "Excerpts ranked by M1/M2 quality boost then recency, not raw recency only",
       "warnings when ambiguous name or empty matches",
       "nextSuggestedTools for deeper CRM reads",
     ],
     nextTools: [
       { name: "read_startup_notes", when: "Full notes for one historical match" },
+      { name: "find_similar_cases", when: "Semantic similarity beyond sector tags" },
       { name: "read_company_document_excerpt", when: "Deck or board pack for a match" },
     ],
     limitations: [
       "Similarity is sector-based today, not semantic deck analysis",
       "Only startups visible to the caller ACL",
+      "Use find_similar_notes (planned) for cross-segment semantic memory",
+    ],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  find_similar_cases: meta({
+    summary:
+      "Tomcat semantic memory: find historically seen startups similar to a reference company, "
+      + "a free-text question, or a note anchor. Returns company-level matches with cited evidence notes.",
+    whenToUse: [
+      "Prep M1/M2: « have we seen similar cases before? »",
+      "After resolve_entity when sector tags are incomplete or misleading",
+      "Cross-segment memory: payroll, GTM motion, red flags, market view",
+    ],
+    prerequisites: [
+      "Prefer startupId from resolve_entity for prep workflows",
+      "Requires semantic index (Postgres + embeddings worker)",
+    ],
+    inputTips: [
+      "startupId — primary input when prepping a known company",
+      "query — free-text when no reference startup is resolved yet",
+      "authorEmail — filter evidence to one author (e.g. Élie M1/M2 notes)",
+      "sinceDays — limit to recent history",
+      "chunkKind — investment_lens for Tomcat judgment, recap for general similarity",
+    ],
+    output: [
+      "ToolRunEnvelope with matches[] aggregated by startupId",
+      "Each match: whySimilar, soWhat, topEvidence note excerpts with ids",
+      "indexStats.chunksIndexed surfaces empty-index warnings",
+    ],
+    nextTools: [
+      { name: "read_startup_notes", when: "Full note bodies for a top match" },
+      { name: "find_competitive_history", when: "Sector-tagged peers as complement" },
+    ],
+    limitations: [
+      "Returns empty with CRM_MEMORY_INDEX_EMPTY until the indexing worker has run",
+      "Semantic similarity complements but does not replace sector-based history",
     ],
     sources: ["hubspot"],
     access: "confidential",
@@ -308,11 +352,13 @@ export const TOOL_DESCRIPTIONS = {
     ],
     output: [
       "ToolRunEnvelope: profile, summary stats, facts[] ranked by recency × relevance",
-      "Each fact has kind, headline, occurredAt, citation",
+      "Pinned facts when present: Latest Elie note, Latest M1/M2 synthesis",
+      "Each fact has kind, headline, occurredAt, author in detail, citation",
       "nextSuggestedTools for competitive history and Drive docs",
     ],
     nextTools: [
       { name: "find_competitive_history", when: "Sector peers or prior Tomcat memory needed" },
+      { name: "find_similar_cases", when: "Semantic cross-segment memory for prep M1/M2" },
       { name: "find_latest_deck", when: "User asks for deck, pitch, or presentation" },
       { name: "list_company_documents", when: "Browse all Drive docs, not just deck" },
       { name: "read_startup_notes", when: "Full note bodies beyond ranked excerpts" },
@@ -350,10 +396,23 @@ export const TOOL_DESCRIPTIONS = {
   }),
 
   read_startup_notes: meta({
-    summary: "Read permission-filtered HubSpot notes for one startup.",
-    whenToUse: ["Deep dive on CRM notes when list_company_crm_activity is too broad"],
-    inputTips: ["Require startupId or exact startupName"],
-    output: ["Notes sorted by recency; sensitive fields redacted per caller tier"],
+    summary:
+      "Read permission-filtered HubSpot notes for one startup, with optional author and recency filters.",
+    whenToUse: [
+      "Deep dive on CRM notes when list_company_crm_activity is too broad",
+      "Read Élie M1/M2 synthesis notes on a company or peer match",
+      "After find_competitive_history when excerpts need full bodies",
+    ],
+    inputTips: [
+      "Require startupId or exact startupName",
+      "authorEmail — filter to one author (substring match, case-insensitive)",
+      "sinceDays — only notes created within the last N days",
+      "minBodyLength — skip short ops notes (e.g. 500 for M1/M2-length synthesis)",
+    ],
+    output: [
+      "Notes sorted by recency; sensitive fields redacted per caller tier",
+      "Always cite note id, authorEmail, and createdAt in synthesis",
+    ],
     sources: ["hubspot"],
     access: "confidential",
     approvalRequired: false,

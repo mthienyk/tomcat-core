@@ -4,6 +4,11 @@ import { BadRequest } from "../errors/index.js";
 import { canSeeDeal, canSeeNote, canSeeStartup } from "../permissions/policies.js";
 import { redactNoteBody } from "../permissions/redact.js";
 import type { Connectors } from "../connectors/registry.js";
+import {
+  isWithinSinceDays,
+  matchesAuthorEmail,
+  rankNotesByQuality,
+} from "./noteRanking.js";
 
 type StartupSeed = {
   startupId: string | undefined;
@@ -18,6 +23,10 @@ type StartupLookup = {
 
 type ListOptions = {
   limit?: number;
+  authorEmail?: string;
+  sinceDays?: number;
+  minBodyLength?: number;
+  rankByQuality?: boolean;
 };
 
 const MAX_LIMIT = 200;
@@ -182,13 +191,35 @@ export const buildStartupsService = (deps: { connectors: Connectors }) => {
 
       const notes = await connectors.hubspot.listNotesForStartup(target.id);
       const limit = clampLimit(options?.limit, DEFAULT_ACTIVITY_LIMIT);
-      return notes
+      const nowMs = Date.now();
+
+      let filteredNotes = notes
         .filter((note) => canSeeNote(caller, note))
-        .map((note) => redactNoteBody(caller, note))
-        .sort((left, right) =>
-          right.createdAt.localeCompare(left.createdAt),
-        )
-        .slice(0, limit);
+        .map((note) => redactNoteBody(caller, note));
+
+      if (options?.authorEmail !== undefined) {
+        filteredNotes = filteredNotes.filter((note) =>
+          matchesAuthorEmail(note, options.authorEmail!),
+        );
+      }
+      if (options?.sinceDays !== undefined) {
+        filteredNotes = filteredNotes.filter((note) =>
+          isWithinSinceDays(note.createdAt, options.sinceDays!, nowMs),
+        );
+      }
+      if (options?.minBodyLength !== undefined) {
+        filteredNotes = filteredNotes.filter(
+          (note) => note.body.length >= options.minBodyLength!,
+        );
+      }
+
+      const sorted = options?.rankByQuality
+        ? rankNotesByQuality(filteredNotes)
+        : filteredNotes.sort((left, right) =>
+            right.createdAt.localeCompare(left.createdAt),
+          );
+
+      return sorted.slice(0, limit);
     },
 
     listAccessibleDeals: async (

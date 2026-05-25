@@ -15,6 +15,7 @@ import type { IdentityResolver } from "./auth/types.js";
 import { buildConnectors } from "./connectors/registry.js";
 import { buildStoreBackedConnectors } from "./connectors/storeBacked.js";
 import { buildLlmRegistry } from "./llm/registry.js";
+import { buildEmbeddingRegistry } from "./llm/embeddings/registry.js";
 import { buildSocietyService } from "./services/society.js";
 import { buildStartupsService } from "./services/startups.js";
 import { buildCompanyContextService } from "./services/companyContext.js";
@@ -32,6 +33,10 @@ import { buildCompanyDriveFolderService } from "./services/companyDriveFolder.js
 import { buildBoardBriefService } from "./services/boardBrief.js";
 import { buildPortfolioSignalDigestService } from "./services/portfolioSignalDigest.js";
 import { createSyncScheduler } from "./sync/scheduler.js";
+import { createCrmMemoryIndexWorker } from "./sync/crmMemoryIndexWorker.js";
+import { buildHydeQueryGenerator } from "./services/crmMemory/hydeQuery.js";
+import { resolveCrmMemorySemanticLlm } from "./services/crmMemory/semanticLlm.js";
+import { buildSimilarCasesService } from "./services/crmMemory/similarCases.js";
 import { errorHandler } from "./api/errorHandler.js";
 import { registerHealthRoutes } from "./api/routes/health.js";
 import { registerMeRoutes } from "./api/routes/me.js";
@@ -250,7 +255,47 @@ export const buildServer = async (
     syncScheduler.start();
   }
 
+  // --- LLM + AI routes ---
+  const llmRegistry = buildLlmRegistry(config);
+  const embeddingRegistry = buildEmbeddingRegistry(config);
+
+  let similarCases: ReturnType<typeof buildSimilarCasesService> | undefined;
+  let crmMemoryIndexTimer: ReturnType<typeof setInterval> | undefined;
+
+  if (coreStore && llmRegistry.hasAnyProvider()) {
+    const semanticLlm = resolveCrmMemorySemanticLlm(config, llmRegistry);
+    const hyde = buildHydeQueryGenerator({ llm: semanticLlm });
+    similarCases = buildSimilarCasesService({
+      store: coreStore,
+      startups,
+      embeddings: embeddingRegistry.defaultProvider(),
+      hyde,
+    });
+
+    const crmMemoryWorker = createCrmMemoryIndexWorker({
+      store: coreStore,
+      embeddingRegistry,
+      logger: app.log as unknown as Logger,
+      config: {
+        enabled: config.crmMemory.indexEnabled,
+        batchSize: config.crmMemory.indexBatchSize,
+        concurrency: config.crmMemory.indexConcurrency,
+        semanticLlm,
+      },
+    });
+
+    crmMemoryIndexTimer = setInterval(() => {
+      void crmMemoryWorker.runOnce();
+    }, config.crmMemory.indexIntervalMs);
+    setTimeout(() => {
+      void crmMemoryWorker.runOnce();
+    }, 10_000);
+  }
+
   app.addHook("onClose", async () => {
+    if (crmMemoryIndexTimer !== undefined) {
+      clearInterval(crmMemoryIndexTimer);
+    }
     syncScheduler?.stop();
     if (coreStore) {
       const failed = await coreStore.failAllRunningSyncRuns("replica_shutdown");
@@ -261,9 +306,6 @@ export const buildServer = async (
     signalHubStack.stop();
     await pgDb?.end();
   });
-
-  // --- LLM + AI routes ---
-  const llmRegistry = buildLlmRegistry(config);
 
   app.setErrorHandler(errorHandler);
 
@@ -304,6 +346,7 @@ export const buildServer = async (
         portfolioSignalDigest,
         bpWorkflow,
         portfolioCompanies,
+        similarCases,
       },
       auditor,
       auth,
@@ -360,6 +403,7 @@ export const buildServer = async (
       portfolioSignalDigest,
       bpWorkflow,
       portfolioCompanies,
+      similarCases,
       auditor,
     });
     registerAiRoutes(app, auth, ai);

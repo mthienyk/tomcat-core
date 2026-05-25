@@ -85,6 +85,7 @@ const fakeServices = (
     portfolioCompanies: {
       listPortfolioCompanies: vi.fn(),
     },
+    similarCases: undefined,
   }) as unknown as AgentToolServices;
 
 const startConnectedClient = async (

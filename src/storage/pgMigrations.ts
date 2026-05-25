@@ -15,6 +15,7 @@ const MIGRATION_FILES = [
   "pg_005_sync_engine.sql",
   "pg_006_board_packs_mime.sql",
   "pg_007_sync_queue_trigger_context.sql",
+  "pg_008_knowledge_index_vector.sql",
 ] as const;
 
 export const runPgMigrations = async (db: Db): Promise<void> => {

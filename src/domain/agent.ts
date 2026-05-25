@@ -30,6 +30,7 @@ export const CoreToolNameSchema = z.enum([
   "list_portfolio_companies",
   "build_company_360_context",
   "find_competitive_history",
+  "find_similar_cases",
   "prepare_board_brief",
   "generate_portfolio_signal_digest",
   "resolve_company_drive_folder",

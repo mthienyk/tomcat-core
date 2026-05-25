@@ -16,6 +16,11 @@ import type {
   SyncQueueJob,
   SyncQueueStats,
 } from "../domain/syncQueue.js";
+import type {
+  KnowledgeChunkSearchHit,
+  KnowledgeChunkSearchParams,
+  KnowledgeIndexChunkInput,
+} from "../domain/crmMemory.js";
 
 export type SyncStatus = "running" | "success" | "failed";
 
@@ -67,6 +72,20 @@ export interface CoreStore {
   // Notes
   upsertNote(note: Note): Promise<void>;
   listNotesForStartup(startupId: string): Promise<Note[]>;
+  getNoteById(id: string): Promise<Note | undefined>;
+  listNotesPendingIndex(limit: number): Promise<Note[]>;
+  markNoteIndexed(noteId: string, contentHash: string): Promise<void>;
+
+  // CRM semantic memory index
+  replaceKnowledgeChunksForNote(
+    noteId: string,
+    chunks: KnowledgeIndexChunkInput[],
+  ): Promise<void>;
+  searchKnowledgeChunks(
+    params: KnowledgeChunkSearchParams,
+  ): Promise<KnowledgeChunkSearchHit[]>;
+  countIndexedKnowledgeChunks(): Promise<number>;
+  getStartupById(id: string): Promise<Startup | undefined>;
 
   // Meetings
   upsertMeeting(meeting: Meeting): Promise<void>;

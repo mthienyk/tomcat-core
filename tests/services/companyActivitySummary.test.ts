@@ -128,6 +128,46 @@ describe("companyActivitySummary service", () => {
     expect(result.data.facts[0]?.id).toBe("note_m1");
   });
 
+  it("pins latest Elie and M1/M2 highlight facts", async () => {
+    const startups = {
+      searchStartups: vi.fn(async () => [wenabi]),
+      listAccessibleNotes: vi.fn(async () => [
+        {
+          id: "note_ops",
+          startupId: "9426764108",
+          authorEmail: "kevin@tomcat.eu",
+          body: "Quick ops note.",
+          sensitivity: "internal",
+          createdAt: "2026-05-22T10:00:00Z",
+          source: { system: "hubspot", externalId: "note_ops" },
+        },
+        {
+          id: "note_elie_m2",
+          startupId: "9426764108",
+          authorEmail: "elie.dupredesaintmaur@tomcat.eu",
+          body: "M2 — churn improving but sales cycle still long.",
+          sensitivity: "internal",
+          createdAt: "2026-05-10T10:00:00Z",
+          source: { system: "hubspot", externalId: "note_elie_m2" },
+        },
+      ]),
+      listAccessibleDeals: vi.fn(async () => []),
+      listAccessibleMeetings: vi.fn(async () => []),
+    };
+
+    const service = buildCompanyActivitySummaryService({
+      startups: startups as never,
+    });
+
+    const result = await service.summarizeCompanyActivity(caller, {
+      startupId: "9426764108",
+      factLimit: 5,
+    });
+
+    expect(result.data.facts[0]?.headline).toMatch(/^Latest Elie note:/);
+    expect(result.data.facts[0]?.id).toBe("note_elie_m2");
+  });
+
   it("warns when CRM activity is empty", async () => {
     const startups = {
       searchStartups: vi.fn(async () => [wenabi]),

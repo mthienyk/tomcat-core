@@ -7,6 +7,8 @@ export type LlmMessage = {
   content: string;
 };
 
+export type LlmReasoningEffort = "minimal" | "low" | "medium" | "high";
+
 export type LlmStructuredRequest<TSchema extends ZodTypeAny> = {
   model: string | undefined;
   schemaName: string;
@@ -14,6 +16,7 @@ export type LlmStructuredRequest<TSchema extends ZodTypeAny> = {
   system: string;
   user: string;
   maxTokens?: number;
+  reasoningEffort?: LlmReasoningEffort;
 };
 
 export type LlmJsonSchema = Record<string, unknown>;

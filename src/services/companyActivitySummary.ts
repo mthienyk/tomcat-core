@@ -12,6 +12,12 @@ import {
   clampCrmLimit,
 } from "./crmActivityLimits.js";
 import type { StartupsService } from "./startups.js";
+import {
+  ELIE_NOTE_AUTHOR_EMAIL,
+  isM1M2SynthesisNote,
+  matchesAuthorEmail,
+  noteQualityBoost,
+} from "./noteRanking.js";
 
 export type CompanyActivityFactKind = "note" | "deal" | "meeting";
 
@@ -47,16 +53,10 @@ export type CompanyActivitySummaryData = {
 
 const NOTE_HEADLINE_MAX = 220;
 const MS_PER_DAY = 86_400_000;
+const HIGHLIGHT_FACT_SCORE = 200;
 
 const excerpt = (text: string, maxChars: number): string =>
   text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
-
-const noteQualityBoost = (body: string): number => {
-  if (/\bexec\s*sum/i.test(body)) return 80;
-  if (/\bM[0-4]\b/.test(body)) return 60;
-  if (/\bboard\b/i.test(body)) return 40;
-  return 0;
-};
 
 const recencyScore = (isoDate: string, nowMs: number): number => {
   const parsed = Date.parse(isoDate);
@@ -241,6 +241,78 @@ const buildFacts = (input: {
   });
 };
 
+const buildNoteFact = (
+  note: Note,
+  headlinePrefix: string,
+  rankScore: number,
+): CompanyActivityFact => ({
+  kind: "note",
+  id: note.id,
+  occurredAt: note.createdAt,
+  headline: `${headlinePrefix}: ${excerpt(
+    note.body.replace(/\s+/g, " ").trim(),
+    NOTE_HEADLINE_MAX - headlinePrefix.length - 2,
+  )}`,
+  detail: note.authorEmail,
+  rankScore,
+  citation: {
+    label: `Note ${note.id} (${note.sensitivity})`,
+    source: note.source,
+  },
+});
+
+const buildHighlightFacts = (notes: Note[]): CompanyActivityFact[] => {
+  const highlights: CompanyActivityFact[] = [];
+  const seenIds = new Set<string>();
+
+  const latestElie = [...notes]
+    .filter((note) => matchesAuthorEmail(note, ELIE_NOTE_AUTHOR_EMAIL))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  if (latestElie) {
+    highlights.push(
+      buildNoteFact(latestElie, "Latest Elie note", HIGHLIGHT_FACT_SCORE),
+    );
+    seenIds.add(latestElie.id);
+  }
+
+  const latestM1M2 = [...notes]
+    .filter((note) => isM1M2SynthesisNote(note.body))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  if (latestM1M2 && !seenIds.has(latestM1M2.id)) {
+    highlights.push(
+      buildNoteFact(
+        latestM1M2,
+        "Latest M1/M2 synthesis",
+        HIGHLIGHT_FACT_SCORE - 1,
+      ),
+    );
+  }
+
+  return highlights;
+};
+
+const mergeFacts = (
+  highlights: CompanyActivityFact[],
+  rankedFacts: CompanyActivityFact[],
+  factLimit: number,
+): CompanyActivityFact[] => {
+  const seenIds = new Set<string>();
+  const merged: CompanyActivityFact[] = [];
+
+  for (const fact of highlights) {
+    if (seenIds.has(fact.id)) continue;
+    seenIds.add(fact.id);
+    merged.push(fact);
+  }
+  for (const fact of rankedFacts) {
+    if (seenIds.has(fact.id)) continue;
+    seenIds.add(fact.id);
+    merged.push(fact);
+  }
+
+  return merged.slice(0, factLimit);
+};
+
 export const buildCompanyActivitySummaryService = (deps: {
   startups: StartupsService;
 }) => {
@@ -287,7 +359,8 @@ export const buildCompanyActivitySummaryService = (deps: {
       ]);
 
       const rankedFacts = buildFacts({ notes, deals, meetings, nowMs });
-      const facts = rankedFacts.slice(0, factLimit);
+      const highlights = buildHighlightFacts(notes);
+      const facts = mergeFacts(highlights, rankedFacts, factLimit);
 
       const activePipelineDeals = deals.filter(
         (deal) => deal.status === "diligence" || deal.status === "screening",
@@ -307,6 +380,11 @@ export const buildCompanyActivitySummaryService = (deps: {
         {
           toolName: "find_competitive_history",
           reason: "Compare against prior deals in the same sector",
+          arguments: { startupId: startup.id },
+        },
+        {
+          toolName: "find_similar_cases",
+          reason: "Find semantically similar historical cases beyond sector tags",
           arguments: { startupId: startup.id },
         },
       ];

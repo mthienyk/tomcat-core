@@ -16,6 +16,7 @@ import type { CompanyActivitySummaryService } from "./companyActivitySummary.js"
 import type { FindLatestDeckService } from "./findLatestDeck.js";
 import type { BpWorkflowService } from "./bpWorkflow.js";
 import type { PortfolioCompaniesService } from "./portfolioCompanies.js";
+import type { SimilarCasesService } from "./crmMemory/similarCases.js";
 
 export type AiQueryResult = {
   provider: LlmProviderName;
@@ -42,6 +43,7 @@ export type AiServiceDeps = {
   findLatestDeck: FindLatestDeckService;
   bpWorkflow: BpWorkflowService;
   portfolioCompanies: PortfolioCompaniesService;
+  similarCases: SimilarCasesService | undefined;
   auditor: Auditor;
 };
 
@@ -79,6 +81,7 @@ export const buildAiService = (deps: AiServiceDeps) => ({
         findLatestDeck: deps.findLatestDeck,
         bpWorkflow: deps.bpWorkflow,
         portfolioCompanies: deps.portfolioCompanies,
+        similarCases: deps.similarCases,
       },
       caller,
       auditor: deps.auditor,

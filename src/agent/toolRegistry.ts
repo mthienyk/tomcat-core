@@ -23,6 +23,7 @@ import { formatToolDescription } from "../mcp/toolMeta.js";
 import { TOOL_DESCRIPTIONS } from "./toolCopy.js";
 import type { BpWorkflowService } from "../services/bpWorkflow.js";
 import type { PortfolioCompaniesService } from "../services/portfolioCompanies.js";
+import type { SimilarCasesService } from "../services/crmMemory/similarCases.js";
 import { readBpPlaybook } from "../services/bpPlaybook.js";
 
 export type AgentToolServices = {
@@ -38,6 +39,7 @@ export type AgentToolServices = {
   findLatestDeck: FindLatestDeckService;
   bpWorkflow: BpWorkflowService;
   portfolioCompanies: PortfolioCompaniesService;
+  similarCases: SimilarCasesService | undefined;
 };
 
 type ToolHandler<TArgs> = (deps: {
@@ -100,6 +102,9 @@ const StartupSelectorBase = z
 
 const ReadStartupNotesArgs = StartupSelectorBase.extend({
   limit: z.number().int().positive().max(200).optional(),
+  authorEmail: z.string().email().optional(),
+  sinceDays: z.number().int().positive().max(3650).optional(),
+  minBodyLength: z.number().int().positive().max(50_000).optional(),
 }).strict();
 
 const ReadStartupDealsArgs = StartupSelectorBase.extend({
@@ -283,6 +288,21 @@ const FindCompetitiveHistoryArgs = z
     sector: z.string().min(1).optional(),
     limit: z.number().int().positive().max(25).optional(),
     notesPerMatch: z.number().int().positive().max(10).optional(),
+    authorEmail: z.string().email().optional(),
+  })
+  .strict();
+
+const FindSimilarCasesArgs = z
+  .object({
+    startupId: z.string().min(1).optional(),
+    startupName: z.string().min(1).optional(),
+    query: z.string().min(1).optional(),
+    noteId: z.string().min(1).optional(),
+    authorEmail: z.string().email().optional(),
+    sector: z.string().min(1).optional(),
+    sinceDays: z.number().int().positive().max(3650).optional(),
+    chunkKind: z.enum(["recap", "investment_lens"]).optional(),
+    limit: z.number().int().positive().max(25).optional(),
   })
   .strict();
 
@@ -346,6 +366,29 @@ const buildListOptions = (
 ): { limit: number } | undefined =>
   limit !== undefined ? { limit } : undefined;
 
+type NoteListOptionsArgs = {
+  limit?: number | undefined;
+  authorEmail?: string | undefined;
+  sinceDays?: number | undefined;
+  minBodyLength?: number | undefined;
+};
+
+const buildNoteListOptions = (
+  args: NoteListOptionsArgs,
+): {
+  limit?: number;
+  authorEmail?: string;
+  sinceDays?: number;
+  minBodyLength?: number;
+} => ({
+  ...(args.limit !== undefined ? { limit: args.limit } : {}),
+  ...(args.authorEmail !== undefined ? { authorEmail: args.authorEmail } : {}),
+  ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
+  ...(args.minBodyLength !== undefined
+    ? { minBodyLength: args.minBodyLength }
+    : {}),
+});
+
 export const AGENT_TOOL_REGISTRY = [
   defineAgentTool({
     name: "search_startups",
@@ -378,7 +421,7 @@ export const AGENT_TOOL_REGISTRY = [
       services.startups.listAccessibleNotes(
         caller,
         buildStartupLookup(args),
-        buildListOptions(args.limit),
+        buildNoteListOptions(args),
       ),
   }),
   defineAgentTool({
@@ -762,7 +805,37 @@ export const AGENT_TOOL_REGISTRY = [
         ...(args.sector !== undefined ? { sector: args.sector } : {}),
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
         ...(args.notesPerMatch !== undefined ? { notesPerMatch: args.notesPerMatch } : {}),
+        ...(args.authorEmail !== undefined ? { authorEmail: args.authorEmail } : {}),
       }),
+  }),
+  defineAgentTool({
+    name: "find_similar_cases",
+    title: "Find Similar Cases",
+    description: formatToolDescription(TOOL_DESCRIPTIONS.find_similar_cases),
+
+    labels: ["startup", "crm", "memory", "semantic"],
+    sources: ["hubspot"],
+    access: "confidential",
+    approvalRequired: false,
+    inputSchema: FindSimilarCasesArgs,
+    execute: async ({ services, caller, args }) => {
+      if (!services.similarCases) {
+        throw BadRequest(
+          "Semantic CRM memory is unavailable. Requires Postgres read model and embedding provider.",
+        );
+      }
+      return services.similarCases.findSimilarCases(caller, {
+        ...(args.startupId !== undefined ? { startupId: args.startupId } : {}),
+        ...(args.startupName !== undefined ? { startupName: args.startupName } : {}),
+        ...(args.query !== undefined ? { query: args.query } : {}),
+        ...(args.noteId !== undefined ? { noteId: args.noteId } : {}),
+        ...(args.authorEmail !== undefined ? { authorEmail: args.authorEmail } : {}),
+        ...(args.sector !== undefined ? { sector: args.sector } : {}),
+        ...(args.sinceDays !== undefined ? { sinceDays: args.sinceDays } : {}),
+        ...(args.chunkKind !== undefined ? { chunkKind: args.chunkKind } : {}),
+        ...(args.limit !== undefined ? { limit: args.limit } : {}),
+      });
+    },
   }),
   defineAgentTool({
     name: "resolve_company_drive_folder",
