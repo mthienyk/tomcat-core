@@ -1,6 +1,6 @@
 import type { NoteSensitivity } from "./entities.js";
 
-export const CRM_MEMORY_SCHEMA_VERSION = "1";
+export const CRM_MEMORY_SCHEMA_VERSION = "3";
 
 export type CrmMemoryChunkKind = "recap" | "investment_lens";
 

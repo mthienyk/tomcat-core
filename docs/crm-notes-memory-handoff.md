@@ -195,6 +195,7 @@ npm run crm:index-status
 npm run crm:ensure-orphan-startups   # backfill startups manquantes dans annuaire
 npm run crm:query-benchmark          # latence searchTexts / query / noteId (prod DB)
 npm run crm:purge-ineligible-notes   # purge ops + notes < 500 chars, reset for reindex
+npm run crm:reindex-all              # full v3 HyDe + embed (--dry-run, --no-reset, --reset-only)
 npm run crm:golden-eval              # nDCG@5 sur golden set → docs/crm-memory-golden-eval-latest.json
 ```
 

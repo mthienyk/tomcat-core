@@ -261,12 +261,20 @@ export const buildGrepCrmNotesService = (deps: {
                     message:
                       "No CRM notes matched the keyword query within accessible startups.",
                     mitigation:
-                      "Try matchMode any, broaden sinceDays, remove startup filter, or use find_similar_cases for semantic recall.",
+                      "Try matchMode any, broaden sinceDays, remove startup filter, or call find_similar_cases with query for conceptual recall.",
+                  },
+                ],
+                nextSuggestedTools: [
+                  {
+                    toolName: "find_similar_cases",
+                    reason:
+                      "Semantic fallback when keywords are absent from note bodies",
+                    arguments: { query: args.query },
                   },
                 ],
               }
             : {}),
-          ...(nextSuggestedTools.length > 0
+          ...(matches.length > 0 && nextSuggestedTools.length > 0
             ? { nextSuggestedTools }
             : {}),
         },

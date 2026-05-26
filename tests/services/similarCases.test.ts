@@ -164,6 +164,47 @@ describe("similarCases service", () => {
     );
   });
 
+  it("warns when the semantic index is partially built", async () => {
+    const service = buildService({
+      store: {
+        countIndexedKnowledgeChunks: vi.fn().mockResolvedValue(400),
+        searchKnowledgeChunks: vi.fn().mockResolvedValue([]),
+        getNoteById: vi.fn(),
+      },
+    });
+
+    const result = await service.findSimilarCases(caller, {
+      query: "startup qui perd des utilisateurs",
+    });
+
+    expect(
+      result.warnings.some((w) => w.code === "CRM_MEMORY_INDEX_PARTIAL"),
+    ).toBe(true);
+  });
+
+  it("suggests grep_crm_notes when free-text vector search returns no matches", async () => {
+    const service = buildService({
+      store: {
+        countIndexedKnowledgeChunks: vi.fn().mockResolvedValue(3000),
+        searchKnowledgeChunks: vi.fn().mockResolvedValue([]),
+        getNoteById: vi.fn(),
+      },
+    });
+
+    const result = await service.findSimilarCases(caller, {
+      query: "startup qui perd des utilisateurs",
+    });
+
+    expect(result.nextSuggestedTools?.[0]).toEqual({
+      toolName: "grep_crm_notes",
+      reason: "Keyword fallback when natural-language vector search returns no matches",
+      arguments: {
+        query: "startup qui perd des utilisateurs",
+        matchMode: "any",
+      },
+    });
+  });
+
   it("returns empty results when sector filter matches no startups", async () => {
     const searchKnowledgeChunks = vi.fn();
     const service = buildService({

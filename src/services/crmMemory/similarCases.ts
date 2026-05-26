@@ -30,6 +30,8 @@ const EXCERPT_MAX = 400;
 const SEARCH_POOL = 60;
 const EVIDENCE_PER_CASE = 3;
 const MAX_SEARCH_TEXTS = 3;
+/** ~75% of expected ~3.3k chunks when indexable notes are fully embedded (2 chunks/note). */
+const PARTIAL_INDEX_CHUNK_THRESHOLD = 2500;
 
 const excerpt = (text: string): string =>
   text.length > EXCERPT_MAX ? `${text.slice(0, EXCERPT_MAX)}…` : text;
@@ -199,6 +201,14 @@ export const buildSimilarCasesService = (deps: {
           mitigation:
             "Wait for the indexing worker or run a backfill before calling find_similar_cases.",
         });
+      } else if (indexedChunks < PARTIAL_INDEX_CHUNK_THRESHOLD) {
+        warnings.push({
+          code: ToolWarningCodes.CRM_MEMORY_INDEX_PARTIAL,
+          message:
+            `Semantic index partially built (${indexedChunks} chunks). Results may miss notes still pending v3 re-embedding.`,
+          mitigation:
+            "Check npm run crm:index-status on the server, or retry after the indexing worker completes.",
+        });
       }
 
       const hasSearchInput =
@@ -356,7 +366,9 @@ export const buildSimilarCasesService = (deps: {
           code: ToolWarningCodes.NO_SIMILAR_CASES,
           message: "No semantically similar historical cases matched the query.",
           mitigation:
-            "Rewrite searchTexts as refined recap/investment_lens excerpts with operational vocabulary, try chunkKind recap for product wedge, or broaden sinceDays.",
+            searchBasis === "free_text"
+              ? "Try grep_crm_notes for exact terms (churn, PayFit, McDonalds), or rewrite as searchTexts in recap style."
+              : "Rewrite searchTexts as refined recap/investment_lens excerpts with operational vocabulary, try chunkKind recap for product wedge, or broaden sinceDays.",
         });
       }
 
@@ -394,6 +406,14 @@ export const buildSimilarCasesService = (deps: {
       }
 
       const nextSuggestedTools: SuggestedToolCall[] = [];
+      if (matches.length === 0 && searchBasis === "free_text" && args.query) {
+        nextSuggestedTools.push({
+          toolName: "grep_crm_notes",
+          reason:
+            "Keyword fallback when natural-language vector search returns no matches",
+          arguments: { query: args.query, matchMode: "any" },
+        });
+      }
       if (matches[0]) {
         nextSuggestedTools.push({
           toolName: "read_startup_notes",

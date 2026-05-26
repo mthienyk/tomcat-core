@@ -19,6 +19,7 @@
     "crm:ensure-orphan-startups": "tsx scripts/crmMemoryEnsureOrphanStartups.ts",
     "crm:query-benchmark": "tsx scripts/crmMemoryQueryBenchmark.ts",
     "crm:purge-ineligible-notes": "tsx scripts/crmMemoryPurgeIneligibleNotes.ts",
+    "crm:reindex-all": "tsx scripts/crmMemoryReindexAll.ts",
     "crm:golden-eval": "tsx scripts/crmMemoryGoldenEval.ts",
     "auth:google": "tsx scripts/googleLogin.ts",
     "auth:status": "tsx scripts/googleAuthStatus.ts",

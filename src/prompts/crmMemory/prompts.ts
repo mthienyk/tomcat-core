@@ -46,7 +46,14 @@ Similarity is not keyword matching. Two startups can be comparable because they:
   market view, recommendation tone).
 - Do not invent metrics, customers, or outcomes.
 - Prefer French or English matching the source note language.
-- Short ops notes: keep recap minimal; do not over-interpret.`;
+- Short ops notes: keep recap minimal; do not over-interpret.
+
+## recap field
+
+Dense retrieval excerpt: company name, product wedge, key metrics, GTM. Add 1–2 sentences
+in plain language for underlying concepts implied by the note (retention problems, engagement
+gaps, GTM scalability, founder dependency) so natural-language vector queries match — not
+only Tomcat-style operational vocabulary. Keep Tomcat judgment in investmentLens.`;
 
 const GOLDEN_INPUT = {
   startup: {
@@ -67,7 +74,7 @@ const GOLDEN_INPUT = {
 const GOLDEN_OUTPUT: CrmMemorySemanticCardOutput = {
   noteKind: "m1_m2",
   recap:
-    "Favikon — plateforme marketing influenceurs / dashboard perf créateurs pour marques. 110 k€ MRR, rentable. Deux ICPs PLG : créateurs (20 €/m) et TPE/PME (100 €/m), usage one-shot recherche d'influenceurs. Churn 11–12 %/mois. Déjà vu en M1 et no go en 2023.",
+    "Favikon — plateforme marketing influenceurs / dashboard perf créateurs pour marques. 110 k€ MRR, rentable. Deux ICPs PLG : créateurs (20 €/m) et TPE/PME (100 €/m), usage one-shot recherche d'influenceurs. Churn 11–12 %/mois. Acquête des clients via PLG mais peine à les retenir : désabonnements massifs chaque mois, signe d'engagement produit faible et valeur perçue insuffisante. Déjà vu en M1 et no go en 2023.",
   investmentLens:
     "Profil CEO impressionnant et efficience capital réelle, mais fondamentaux inchangés depuis 2023 : churn catastrophique, usage one-shot, pricing bas, ADN PLG incompatible avec pivot Key Accounts annoncé sans track record. Cap table tendue post-BSAR floor 12 M€. CEO fuit le sales-led et vend du futur. Conclusion M1 : no go.",
   markets: ["creator marketing", "influenceur B2B", "social media analytics"],

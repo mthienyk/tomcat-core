@@ -107,30 +107,32 @@ export const TOOL_DESCRIPTIONS = {
   find_similar_cases: meta({
     summary:
       "Tomcat semantic CRM memory: vector search over LLM-refined note excerpts "
-      + "(recap + investment_lens per note). You write searchTexts in the same "
-      + "encoding regime as the index — operational vocabulary, facts + judgment, "
-      + "not raw questions or industry jargon.",
+      + "(recap + investment_lens per note). recap mixes facts and plain-language concepts "
+      + "for retrieval; investment_lens holds Tomcat judgment.",
     whenToUse: [
       "M1/M2 prep: « have we seen a similar product wedge / GTM / judgment profile? »",
+      "Conceptual CRM search (retention problems, GTM issues, engagement) via query or searchTexts",
       "Cross-segment memory when HubSpot sector tags are incomplete or misleading",
       "When you have a reference note: noteId anchor (best scores)",
       "When you have a reference startup: startupId excludes it and attaches metadata",
+      "Combine with grep_crm_notes for exact terms (proper nouns, tools, named metrics)",
     ],
     prerequisites: [
       "resolve_entity first when prepping a known company",
       "Requires semantic index (Postgres + embeddings worker)",
     ],
     inputTips: [
-      "INDEX SHAPE — each note is offline-refined into two embedded excerpts: recap (product facts, metrics, market) and investment_lens (Tomcat judgment, red flags, M1/M2 conclusion). The index does NOT contain raw HubSpot bodies.",
-      "searchTexts (preferred) — 1–2 excerpts YOU write in the same format as refined chunks. Encoding symmetry: use operational vocabulary (proprio, foncière, bail, Silae, PayFit, NRR cohorte, canal expert-comptable), not industry jargon (administrateurs de biens, GED, ICS) or user questions.",
-      "Good recap-style: \"Pinql — app mobile gestion locative pour proprio particuliers et foncières. Bail digital, état des lieux, quittancement. MRR 6 k€, mandataire B2C, wedge B2B foncières au nb de lots.\"",
+      "INDEX SHAPE — each note is offline-refined into two embedded excerpts: recap (facts, metrics, market + plain-language concepts for retrieval) and investment_lens (Tomcat judgment, red flags, M1/M2 conclusion). Not raw HubSpot bodies.",
+      "searchTexts (preferred for M1 prep) — 1–2 excerpts in recap/investment_lens style. Operational vocabulary (Silae, PayFit, NRR cohorte, canal expert-comptable), not user questions.",
+      "query — natural-language concept search over the same index (rich recap should match). Example: « startups qui perdent beaucoup d'utilisateurs ».",
+      "For exact terms (McDonalds, PayFit, churn 41%), combine with grep_crm_notes in parallel.",
+      "Good recap-style: \"Pinql — app mobile gestion locative pour proprio particuliers et foncières. Bail digital, MRR 6 k€, wedge B2B foncières. Pénètre le marché locatif mais conversion foncières encore faible — risque GTM long cycle.\"",
       "Good lens-style: \"Early-stage proptech, wedge B2B foncières crédible si drop legacy. Valo 6-7 M€ vs MRR ~6 k€. Concurrents Welmo, Qeeps.\"",
-      "Bad: \"Quelles boîtes similaires avons-nous vues?\" (question format). Bad: dense text with industry jargon unrelated to how Tomcat notes are written.",
-      "chunkKind recap — product/feature similarity (same wedge). Default for product questions.",
-      "chunkKind investment_lens — Tomcat judgment profile similarity (early-stage, burn, valo vs ARR). May return cross-sector matches; not for product wedge search.",
+      "Bad: \"Quelles boîtes similaires avons-nous vues?\" (question format).",
+      "chunkKind recap — product/feature similarity. Default for product questions.",
+      "chunkKind investment_lens — Tomcat judgment profile. May return cross-sector matches.",
       "noteId — embed indexed recap + investment_lens chunks (note_anchor); falls back to raw body if not indexed yet.",
       "startupId — exclude reference company; prefer this over searchTexts alone when reference is known.",
-      "query — fallback direct embed without client-side rewriting.",
       "Do NOT pass authorEmail on the first call — search broadly, then read_startup_notes with authorEmail for Élie perspective.",
       "TEMPLATE payroll recap: \"NessPay-style SaaS paie intégrée Silae/PayFit, distribution via cabinets comptables, avance sur salaire PME. Connecteurs paie natifs, churn et NRR par cohorte.\"",
       "TEMPLATE HR SMB recap: \"HR Tech SaaS entretiens annuels et GPEC pour PME/ETI blue-collar. Churn très faible, contrats upfront multi-années, CVR demo faible.\"",
@@ -146,6 +148,7 @@ export const TOOL_DESCRIPTIONS = {
     ],
     nextTools: [
       { name: "read_startup_notes", when: "Full notes on top 2–3 matches; add authorEmail=elie here" },
+      { name: "grep_crm_notes", when: "Exact terms (proper nouns, tools, metrics) to complement vector hits" },
       { name: "find_competitive_history", when: "Broad sector-tag portfolio scan as complement only" },
     ],
     limitations: [
@@ -163,9 +166,10 @@ export const TOOL_DESCRIPTIONS = {
       "Keyword search over HubSpot note bodies plus indexed semantic metadata "
       + "(competitorNames, markets). Complements find_similar_cases vector search.",
     whenToUse: [
-      "Find exact mentions: product names, tools (Silae, PayFit, Rosaly), metrics",
-      "When semantic search misses because searchTexts are misaligned",
+      "Find exact mentions: product names, tools (Silae, PayFit, Rosaly), metrics, proper nouns (McDonalds)",
+      "When semantic search misses because searchTexts are misaligned or the concept has no exact keyword in notes",
       "Competitor names extracted from a deck or prepare_m1_meeting_brief",
+      "For conceptual queries (retention problems, GTM issues, low engagement), call find_similar_cases in parallel — grep will not surface cases when the exact word is absent from notes",
     ],
     inputTips: [
       "query — space-separated terms; use quotes for phrases (\"gestion locative\")",
@@ -179,7 +183,7 @@ export const TOOL_DESCRIPTIONS = {
     ],
     nextTools: [
       { name: "read_startup_notes", when: "Full note body for a grep hit" },
-      { name: "find_similar_cases", when: "Semantic neighbors once you have a good anchor note" },
+      { name: "find_similar_cases", when: "Semantic neighbors — use query for concepts, searchTexts for M1-style prep" },
     ],
     limitations: [
       "Substring match only — no stemming or fuzzy match yet",
@@ -212,7 +216,8 @@ export const TOOL_DESCRIPTIONS = {
     output: [
       "generatedSearchTexts — server-side recap-style excerpts used for vector search",
       "similarCases — same shape as find_similar_cases",
-      "competitorGrep — keyword hits per competitor hint",
+      "competitorGrep — keyword hits per grounded competitor hint (names must appear in deck, CRM, or oralContext)",
+      "competitorHintsDropped — LLM-suggested names filtered out when not in source material",
       "prepAngles — suggested diligence angles",
       "existingCrmHighlights — prior notes on this startup",
     ],
@@ -700,14 +705,37 @@ export const TOOL_DESCRIPTIONS = {
       "recommendedMode — pass from assemble recommendedMode",
     ],
     output: [
-      "draft, coverage (honest editable-tab %), reviewBrief { summaryForChat, confirmBeforeExport, agentTasks }",
+      "draft, coverage (exportReady flag), parseDiagnostics, reviewBrief { summaryForChat, confirmBeforeExport, agentTasks }",
     ],
     nextTools: [
-      { name: "export_business_plan", when: "Only after the user explicitly asks to export" },
+      { name: "read_bp_tab_preview", when: "parseDiagnostics show low confidence on Financement or RH" },
+      { name: "export_business_plan", when: "Only after the user explicitly asks to export and coverage.exportReady" },
     ],
     limitations: [
       "Does not replace agent judgment on CA/AACE — surfaces assumptions for discussion",
-      "Export blocked if placeholders remain",
+      "Export blocked if placeholders remain or parseDiagnostics.financement confidence is low",
+    ],
+    sources: ["drive"],
+    access: "confidential",
+    approvalRequired: false,
+  }),
+
+  read_bp_tab_preview: meta({
+    summary:
+      "Preview a founder BP tab as TSV with detected layout — CFO inspection before validating Financement/RH.",
+    whenToUse: [
+      "parseDiagnostics confidence is low",
+      "Finance reviewer wants to see raw tab structure before export",
+      "Hybrid mode — cross-check BNP Loan tab vs Drive PDF échéanciers",
+    ],
+    inputTips: [
+      "tabName — optional; defaults to debt, payroll, or revenue tab",
+      "maxRows — default 25; increase up to 60 for wide models",
+    ],
+    output: ["previewTsv, detectedLayouts { debt?, payroll? }, availableTabs[]"],
+    nextTools: [
+      { name: "restructure_founder_bp", when: "After layout review — rerun with updated understanding" },
+      { name: "read_company_document_excerpt", when: "Hybrid — read loan PDF schedules on Drive" },
     ],
     sources: ["drive"],
     access: "confidential",
@@ -721,15 +749,16 @@ export const TOOL_DESCRIPTIONS = {
       "User explicitly confirmed export after reviewing reviewBrief",
     ],
     prerequisites: [
-      "restructure_founder_bp completed without placeholder warnings",
+      "restructure_founder_bp completed with coverage.exportReady true",
       "confirmed: true only when the user asked in the conversation",
     ],
     inputTips: [
       "Agent: decode xlsxBase64 and help the user save the file (artifact/download features)",
       "companyLabel for filename — not raw HubSpot id",
     ],
-    output: ["xlsxBase64, filename, coverage, agentNextStep"],
+    output: ["xlsxBase64, filename, coverage, parseDiagnostics, agentNextStep"],
     limitations: [
+      "Blocked when parseDiagnostics.financement confidence is low",
       "V1: Financement + RH values only; P&L/trésorerie/BPI keep template formulas — manual relink",
       "Not uploaded to Drive automatically",
     ],

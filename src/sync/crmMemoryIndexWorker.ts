@@ -1,11 +1,15 @@
 import type { CoreStore } from "../storage/coreStore.js";
 import type { Connectors } from "../connectors/registry.js";
 import type { Logger } from "../logger/index.js";
+import { buildPinoOptions } from "../logger/index.js";
 import type { EmbeddingRegistry } from "../llm/embeddings/types.js";
 import type { CrmMemorySemanticLlm } from "../services/crmMemory/semanticLlm.js";
 import { buildSemanticCardGenerator } from "../services/crmMemory/semanticCard.js";
 import { buildNoteIndexer } from "../services/crmMemory/indexNote.js";
 import { ensureHubspotStartupForCompany } from "./ensureHubspotStartup.js";
+import pino from "pino";
+
+const silentLogger = pino(buildPinoOptions("silent"));
 
 export type CrmMemoryIndexWorkerConfig = {
   enabled: boolean;
@@ -22,10 +26,10 @@ export const createCrmMemoryIndexWorker = (deps: {
   store: CoreStore;
   connectors: Connectors;
   embeddingRegistry: EmbeddingRegistry;
-  logger: Logger;
+  logger?: Logger;
   config: CrmMemoryIndexWorkerConfig;
 }): CrmMemoryIndexWorker => {
-  const { store, connectors, embeddingRegistry, logger, config } = deps;
+  const { store, connectors, embeddingRegistry, logger = silentLogger, config } = deps;
 
   return {
     runOnce: async (): Promise<number> => {

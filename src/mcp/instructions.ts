@@ -56,6 +56,17 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
      when Élie's perspective is needed
    - \`find_competitive_history\` only as a broad sector-tag complement, not for wedge search
 
+9. **CRM retrieval routing** — Hybrid grep + vector on conceptual queries:
+   - **Exact terms** (proper nouns, tools, named metrics like « McDonalds », « PayFit », « churn »)
+     → \`grep_crm_notes\` first or in parallel
+   - **Concepts** (retention problems, GTM issues, « perd des utilisateurs »)
+     → \`find_similar_cases\` with \`query\` or \`searchTexts\`
+   - **M1 prep wedge search** → \`find_similar_cases\` with \`searchTexts\` in recap style
+     (\`chunkKind: recap\`) or \`prepare_m1_meeting_brief\`
+   - When grep returns zero hits on a conceptual query, still call \`find_similar_cases\`
+   - When vector search is used for an exact proper noun, also grep in parallel
+   - Do not pick one tool exclusively unless the query is clearly keyword-only or concept-only
+
 ## Common workflows
 
 | Goal | Tool chain |
@@ -67,8 +78,9 @@ CRM activity, Drive documents${signalHubEnabled ? ", and LinkedIn signals" : ""}
 | Portfolio annuaire | list_portfolio_companies → resolve_entity |
 ${signalHubWorkflowRow}
 | Competitive context | find_similar_cases(chunkKind recap) → read_startup_notes on top matches |
-| Semantic CRM memory | find_similar_cases(searchTexts, startupId) → read_startup_notes on top matches |
+| Semantic CRM memory | find_similar_cases(searchTexts or query) → read_startup_notes on top matches |
 | Keyword CRM search | grep_crm_notes(query, matchMode) → read_startup_notes on hits |
+| Conceptual CRM search | find_similar_cases(query) + grep_crm_notes(exact terms) in parallel |
 | M1 prep (Élie) | resolve_entity → prepare_m1_meeting_brief → read_startup_notes (authorEmail Élie on matches) |
 | M1 prep (manual) | resolve_entity → find_latest_deck → find_similar_cases(searchTexts, chunkKind recap) → grep_crm_notes(competitors) → read_startup_notes |
 | Drive folder / BP inputs | resolve_entity → resolve_company_drive_folder → read_company_document_excerpt |
@@ -86,8 +98,8 @@ Call \`read_bp_playbook\` first. **Split roles:**
 | Export | MCP | \`export_business_plan(confirmed: true)\` only after explicit human approval |
 
 **Chain:** \`resolve_entity\` (keep \`canonicalName\` + \`driveTokens\`) → \`assemble_company_finance_pack\`
-→ \`restructure_founder_bp\` → present \`reviewBrief\` → hybrid: \`read_company_document_excerpt\` on debt/DSN
-→ user confirms → \`export_business_plan\` with \`confirmed: true\` and \`companyLabel\`.
+→ \`restructure_founder_bp\` → present \`reviewBrief\` + \`parseDiagnostics\` → hybrid: PDF excerpts
+→ \`read_bp_tab_preview\` when confidence low → user confirms → \`export_business_plan\` with \`confirmed: true\`.
 
 **Agent capabilities to use:** explain draft in French tab-by-tab; reason about revenue model (never keyword-only);
 decode \`xlsxBase64\` and help the user save the file; do not export without explicit ask.
