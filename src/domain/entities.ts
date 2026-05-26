@@ -18,6 +18,8 @@ export type Stage =
   | "series_b"
   | "series_c+";
 
+import type { StartupDirectoryTier } from "./startupDirectory.js";
+
 export type Startup = {
   id: string;
   name: string;
@@ -26,6 +28,9 @@ export type Startup = {
   country: string | undefined;
   description: string | undefined;
   visibilityTier: "internal_only" | "shared_with_investors";
+  directoryTier: StartupDirectoryTier;
+  hubspotLifecycle: string | undefined;
+  hubspotCompanyType: string | undefined;
   sources: SourceRef[];
 };
 

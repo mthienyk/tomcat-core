@@ -1,3 +1,5 @@
+import type { StartupDirectoryTier } from "./startupDirectory.js";
+
 export type SocietyMemberKind = "society_member" | "founder";
 
 export type SocietyMember = {
@@ -15,6 +17,7 @@ export type StartupBrowseQuery = {
   cursor: string | undefined;
   limit: number;
   includeInternalOnly: boolean;
+  directoryTiers: readonly StartupDirectoryTier[] | undefined;
 };
 
 export type StartupBrowsePage = {

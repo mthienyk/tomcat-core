@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { AuthInvalid, AuthRequired, Forbidden } from "../errors/index.js";
+import { AuthRequired, Forbidden } from "../errors/index.js";
 import { hasBearerToken } from "./bearer.js";
 import { staleBearerAuthInvalid } from "./authHints.js";
 import type { Identity } from "../domain/identity.js";

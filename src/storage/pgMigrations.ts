@@ -18,6 +18,7 @@ const MIGRATION_FILES = [
   "pg_008_knowledge_index_vector.sql",
   "pg_009_society_auth.sql",
   "pg_010_rate_limit.sql",
+  "pg_011_startup_directory.sql",
 ] as const;
 
 export const runPgMigrations = async (db: Db): Promise<void> => {
