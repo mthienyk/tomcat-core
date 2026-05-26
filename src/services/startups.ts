@@ -1,6 +1,10 @@
 import { effectiveHuman, isInternalRole, type Identity } from "../domain/identity.js";
 import type { Deal, Meeting, Note, Startup } from "../domain/entities.js";
 import { BadRequest } from "../errors/index.js";
+import {
+  SOCIETY_INTERNAL_DIRECTORY_TIERS,
+  SOCIETY_INVESTOR_DIRECTORY_TIERS,
+} from "../domain/startupDirectory.js";
 import { canSeeDeal, canSeeNote, canSeeStartup } from "../permissions/policies.js";
 import { redactNoteBody, redactStartup } from "../permissions/redact.js";
 import type { Connectors } from "../connectors/registry.js";
@@ -70,7 +74,11 @@ export const buildStartupsService = (deps: {
     }
 
     const all = await connectors.hubspot.listStartups();
-    const visible = all.filter((startup) => canSeeStartup(caller, startup));
+    const visible = all.filter(
+      (startup) =>
+        startup.directoryTier !== "excluded"
+        && canSeeStartup(caller, startup),
+    );
     visibleStartupsCache.set(cacheKey, {
       startups: visible,
       expiresAt: Date.now() + VISIBLE_STARTUPS_CACHE_TTL_MS,
@@ -172,12 +180,17 @@ export const buildStartupsService = (deps: {
       const limit = clampLimit(query.limit, DEFAULT_ACTIVITY_LIMIT);
 
       if (store) {
+        const directoryTiers =
+          human !== undefined && isInternalRole(human.role)
+            ? SOCIETY_INTERNAL_DIRECTORY_TIERS
+            : SOCIETY_INVESTOR_DIRECTORY_TIERS;
         const page = await store.browseStartups({
           q: query.q,
           sector: query.sector,
           cursor: query.cursor,
           limit,
           includeInternalOnly,
+          directoryTiers,
         });
         return {
           items: page.items

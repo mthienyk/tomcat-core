@@ -1,6 +1,15 @@
 import type { Sector, Stage, Startup } from "../domain/entities.js";
+import type { StartupDirectoryTier } from "../domain/startupDirectory.js";
+import {
+  computeStartupDirectoryTier,
+  isHubspotInvestorCompany,
+  parseHubspotCompanyTypes,
+  visibilityTierForDirectoryTier,
+} from "./hubspotCompanyEligibility.js";
 
 export type HubspotCompanyProperties = Record<string, string | null>;
+
+export { isHubspotInvestorCompany, parseHubspotCompanyTypes };
 
 const SECTOR_MAP: Partial<Record<string, Sector>> = {
   "Future of Work": "saas",
@@ -18,12 +27,6 @@ const STAGE_MAP: Partial<Record<string, Stage>> = {
   "Série B": "series_b",
 };
 
-export const HUBSPOT_INVESTOR_COMPANY_TYPES = new Set([
-  "Investisseur Business Angel",
-  "Investisseur VC / FO",
-  "INVESTISSEUR",
-]);
-
 export const mapHubspotVisibilityTier = (
   lifecycle: string | null | undefined,
 ): Startup["visibilityTier"] => {
@@ -31,10 +34,15 @@ export const mapHubspotVisibilityTier = (
   return "internal_only";
 };
 
-export const isHubspotInvestorCompany = (
+const initialDirectoryTier = (
   properties: HubspotCompanyProperties,
-): boolean =>
-  HUBSPOT_INVESTOR_COMPANY_TYPES.has(properties.type_d_entreprise ?? "");
+): StartupDirectoryTier =>
+  computeStartupDirectoryTier({
+    hubspotLifecycle: properties.lifecyclestage,
+    hubspotCompanyType: properties.type_d_entreprise,
+    hasInvestedDeal: false,
+    isPortfolio: false,
+  });
 
 export const mapHubspotCompanyToStartup = (input: {
   id: string;
@@ -44,6 +52,7 @@ export const mapHubspotCompanyToStartup = (input: {
   const sector = SECTOR_MAP[p.type_d_industrie ?? ""] ?? "other";
   const country = p.country?.trim();
   const description = p.description?.trim();
+  const directoryTier = initialDirectoryTier(p);
 
   return {
     id: input.id,
@@ -52,7 +61,10 @@ export const mapHubspotCompanyToStartup = (input: {
     stage: STAGE_MAP[p.stade_d_intervention ?? ""] ?? "unknown",
     country: country || undefined,
     description: description || undefined,
-    visibilityTier: mapHubspotVisibilityTier(p.lifecyclestage),
+    visibilityTier: visibilityTierForDirectoryTier(directoryTier),
+    directoryTier,
+    hubspotLifecycle: p.lifecyclestage ?? undefined,
+    hubspotCompanyType: p.type_d_entreprise ?? undefined,
     sources: [{ system: "hubspot", externalId: input.id, url: undefined }],
   };
 };
