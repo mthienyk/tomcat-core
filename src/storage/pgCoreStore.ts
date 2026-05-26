@@ -36,6 +36,7 @@ import type {
 } from "../domain/entities.js";
 import type { Role } from "../domain/identity.js";
 import type { ClubTier } from "../domain/entities.js";
+import type { StartupDirectoryTier } from "../domain/startupDirectory.js";
 import type {
   EnqueueSyncJobInput,
   HubspotCompanySyncState,
@@ -69,6 +70,9 @@ type StartupRow = {
   country: string | null;
   description: string | null;
   visibility_tier: string;
+  directory_tier: string;
+  hubspot_lifecycle: string | null;
+  hubspot_company_type: string | null;
   sources: SourceRef[];
 };
 
@@ -223,6 +227,9 @@ const mapStartup = (r: StartupRow): Startup => ({
   country: r.country ?? undefined,
   description: r.description ?? undefined,
   visibilityTier: r.visibility_tier as Startup["visibilityTier"],
+  directoryTier: r.directory_tier as StartupDirectoryTier,
+  hubspotLifecycle: r.hubspot_lifecycle ?? undefined,
+  hubspotCompanyType: r.hubspot_company_type ?? undefined,
   sources: r.sources,
 });
 
@@ -395,10 +402,12 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       const t = now();
       await db`
         insert into startups
-          (id, name, sectors, stage, country, description, visibility_tier, sources, synced_at)
+          (id, name, sectors, stage, country, description, visibility_tier,
+           directory_tier, hubspot_lifecycle, hubspot_company_type, sources, synced_at)
         values (
           ${s.id}, ${s.name}, ${db.json(s.sectors)}, ${s.stage},
           ${s.country ?? null}, ${s.description ?? null}, ${s.visibilityTier},
+          ${s.directoryTier}, ${s.hubspotLifecycle ?? null}, ${s.hubspotCompanyType ?? null},
           ${db.json(s.sources)}, ${t}
         )
         on conflict (id) do update set
@@ -408,6 +417,9 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
           country = excluded.country,
           description = excluded.description,
           visibility_tier = excluded.visibility_tier,
+          directory_tier = excluded.directory_tier,
+          hubspot_lifecycle = excluded.hubspot_lifecycle,
+          hubspot_company_type = excluded.hubspot_company_type,
           sources = excluded.sources,
           synced_at = excluded.synced_at
       `;
@@ -417,16 +429,43 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
       const t = now();
       const rows = await db<{ id: string }[]>`
         insert into startups
-          (id, name, sectors, stage, country, description, visibility_tier, sources, synced_at)
+          (id, name, sectors, stage, country, description, visibility_tier,
+           directory_tier, hubspot_lifecycle, hubspot_company_type, sources, synced_at)
         values (
           ${s.id}, ${s.name}, ${db.json(s.sectors)}, ${s.stage},
           ${s.country ?? null}, ${s.description ?? null}, ${s.visibilityTier},
+          ${s.directoryTier}, ${s.hubspotLifecycle ?? null}, ${s.hubspotCompanyType ?? null},
           ${db.json(s.sources)}, ${t}
         )
         on conflict (id) do nothing
         returning id
       `;
       return rows.length > 0;
+    },
+
+    async updateStartupDirectoryClassification(input: {
+      id: string;
+      directoryTier: StartupDirectoryTier;
+      visibilityTier: Startup["visibilityTier"];
+    }): Promise<void> {
+      await db`
+        update startups
+        set
+          directory_tier = ${input.directoryTier},
+          visibility_tier = ${input.visibilityTier},
+          synced_at = ${now()}
+        where id = ${input.id}
+      `;
+    },
+
+    async listInvestedStartupIds(): Promise<string[]> {
+      const rows = await db<{ startup_id: string }[]>`
+        select distinct startup_id
+        from deals
+        where status = 'invested'
+        order by startup_id
+      `;
+      return rows.map((row) => row.startup_id);
     },
 
     async listStartupIdsWithNotesMissingDirectoryEntry(): Promise<string[]> {
@@ -475,6 +514,10 @@ export const createPgCoreStore = async (db: Db): Promise<CoreStore> => {
         from startups
         where
           (${query.includeInternalOnly} or visibility_tier <> 'internal_only')
+          and (
+            ${query.directoryTiers ?? null}::text[] is null
+            or directory_tier = any(${query.directoryTiers ?? null}::text[])
+          )
           and (${qPattern ?? null}::text is null or name ilike ${qPattern ?? null})
           and (
             ${sector ?? null}::text is null
@@ -1789,12 +1832,34 @@ const buildMcpOauthStore = (db: Db): McpOAuthStore => ({
     };
   },
 
+  async revokeTokenByHash(tokenHash: string): Promise<boolean> {
+    const rows = await db<{ token_hash: string }[]>`
+      update mcp_oauth_tokens
+      set revoked_at = now()
+      where token_hash = ${tokenHash}
+        and revoked_at is null
+      returning token_hash
+    `;
+    return rows.length > 0;
+  },
+
   async revokeTokensForPair(clientId: string, principalEmail: string): Promise<number> {
     const rows = await db<{ token_hash: string }[]>`
       update mcp_oauth_tokens
       set revoked_at = now()
       where client_id = ${clientId}
         and principal_email = ${principalEmail}
+        and revoked_at is null
+      returning token_hash
+    `;
+    return rows.length;
+  },
+
+  async revokeTokensForPrincipalEmail(principalEmail: string): Promise<number> {
+    const rows = await db<{ token_hash: string }[]>`
+      update mcp_oauth_tokens
+      set revoked_at = now()
+      where principal_email = ${principalEmail}
         and revoked_at is null
       returning token_hash
     `;

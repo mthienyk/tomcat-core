@@ -33,9 +33,18 @@ const testConfig = (): AppConfig => ({
       refreshTokenTtlSeconds: 86400,
       registerRateLimitPerMinute: 30,
     },
+    societyAuth: {
+      magicLinkTtlSeconds: 900,
+      magicLinkRateLimitPerMinute: 10,
+      magicLinkVerifyBaseUrl: undefined,
+      exposeMagicLinkInResponse: false,
+    },
   },
   connectors: {
     hubspotToken: undefined,
+    hubspotMaxRequestsPer10s: 90,
+    hubspotWebhookClientSecret: undefined,
+    hubspotWebhookPublicUrl: undefined,
     driveServiceAccountJson: undefined,
     driveServiceAccountFile: undefined,
     driveSharedDriveId: undefined,
@@ -61,11 +70,34 @@ const testConfig = (): AppConfig => ({
   cors: {
     allowedOrigins: [],
   },
+  rateLimit: {
+    store: "memory",
+    serviceKey: undefined,
+    societyBffOauthGooglePerMinute: 30,
+    societyBffStartupsPerMinute: 120,
+  },
   database: {
     url: undefined,
   },
   sync: {
     overlapGraceMinutes: 20,
+    queuePollIntervalMs: 5000,
+    queueBatchSize: 3,
+    queueStaleJobMs: 600_000,
+    queueRetryDelayMs: 60_000,
+    reconcileIntervalMs: 21_600_000,
+    reconcileLookbackMs: 300_000,
+  },
+  crmMemory: {
+    indexEnabled: false,
+    indexBatchSize: 20,
+    indexConcurrency: 20,
+    indexIntervalMs: 30_000,
+    embeddingModel: "text-embedding-3-small",
+    embeddingDimensions: 1536,
+    semanticProvider: undefined,
+    semanticModel: undefined,
+    reasoningEffort: "minimal",
   },
 });
 
@@ -112,6 +144,38 @@ describe("MCP HTTP /mcp", () => {
     });
 
     expect(response.status).toBe(401);
+  });
+
+  it("signals invalid_token when bearer is stale", async () => {
+    const started = await listen();
+    app = started.app;
+
+    const response = await fetch(`${started.baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer stale_opaque_access_token",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test", version: "0.0.0" },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as {
+      error: { code: string; details?: { reason?: string; nextAction?: string } };
+    };
+    expect(body.error.code).toBe("AUTH_INVALID");
+    expect(body.error.details?.reason).toBe("invalid_token");
+    expect(body.error.details?.nextAction).toBe("reconnect_mcp_connector");
+    expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"');
   });
 
   it("lists registry tools over Streamable HTTP", async () => {

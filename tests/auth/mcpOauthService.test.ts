@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { McpOAuthService } from "../../src/auth/mcpOauth/service.js";
+import { AuthInvalid } from "../../src/errors/index.js";
 import type {
   McpOAuthAuthorizationCode,
   McpOAuthClientRecord,
@@ -85,6 +86,13 @@ const buildMemoryStore = (): McpOAuthStore => {
         expiresAt: row.expiresAt,
       };
     },
+    async revokeTokenByHash(hash) {
+      const row = tokens.get(hash);
+      if (!row || row.revokedAt) return false;
+      row.revokedAt = new Date();
+      tokens.set(hash, row);
+      return true;
+    },
     async revokeTokensForPair(clientId, email) {
       let n = 0;
       for (const [, row] of tokens) {
@@ -93,6 +101,16 @@ const buildMemoryStore = (): McpOAuthStore => {
           && row.principalEmail === email
           && !row.revokedAt
         ) {
+          row.revokedAt = new Date();
+          n += 1;
+        }
+      }
+      return n;
+    },
+    async revokeTokensForPrincipalEmail(email) {
+      let n = 0;
+      for (const [, row] of tokens) {
+        if (row.principalEmail === email && !row.revokedAt) {
           row.revokedAt = new Date();
           n += 1;
         }
@@ -164,7 +182,7 @@ describe("McpOAuthService", () => {
     expect(refreshed?.accessToken).toBeTypeOf("string");
 
     const oldStillValid = await service.resolveAccessToken(tokens!.accessToken);
-    expect(oldStillValid).toBeUndefined();
+    expect(oldStillValid?.principalEmail).toBe("alice@tomcat.eu");
   });
 
   it("rejects code reuse and bad PKCE verifier", async () => {
@@ -209,6 +227,49 @@ describe("McpOAuthService", () => {
     expect(service.normalizeScope("")).toBe("mcp:tools");
     expect(service.normalizeScope("mcp:tools")).toBe("mcp:tools");
     expect(() => service.normalizeScope("foo")).toThrow();
+  });
+
+  it("blocks refresh and purges tokens when principal access is revoked", async () => {
+    const store = buildMemoryStore();
+    const service = new McpOAuthService({
+      store,
+      accessTokenTtlSeconds: 60,
+      refreshTokenTtlSeconds: 600,
+      resolveRole: async (email) => {
+        if (email === "alice@tomcat.eu") {
+          throw AuthInvalid("revoked", { reason: "access_revoked" });
+        }
+        return { role: "internal_team", team: undefined };
+      },
+    });
+    const client = await service.registerClient({
+      clientName: "Cursor",
+      redirectUris: ["cursor://cb"],
+      grantTypes: ["authorization_code", "refresh_token"],
+    });
+    const { verifier, challenge } = makePkce();
+    const code = await service.issueAuthorizationCode({
+      clientId: client.clientId,
+      principalEmail: "alice@tomcat.eu",
+      redirectUri: "cursor://cb",
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+      scopes: "mcp:tools",
+    });
+    const tokens = await service.exchangeCode({
+      code,
+      clientId: client.clientId,
+      codeVerifier: verifier,
+      redirectUri: "cursor://cb",
+    });
+    expect(tokens).toBeDefined();
+
+    const refreshed = await service.refreshTokens({
+      refreshToken: tokens!.refreshToken,
+      clientId: client.clientId,
+    });
+    expect(refreshed).toBeUndefined();
+    expect(await service.resolveAccessToken(tokens!.accessToken)).toBeUndefined();
   });
 
   it("revokes all tokens for a (client, principal) pair", async () => {

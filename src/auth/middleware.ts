@@ -1,5 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { AuthRequired, Forbidden } from "../errors/index.js";
+import { AuthInvalid, AuthRequired, Forbidden } from "../errors/index.js";
+import { hasBearerToken } from "./bearer.js";
+import { staleBearerAuthInvalid } from "./authHints.js";
 import type { Identity } from "../domain/identity.js";
 import { can, type Action } from "../permissions/policies.js";
 import type { Auditor } from "../audit/audit.js";
@@ -27,6 +29,9 @@ export const createAuthMiddleware = ({ resolvers, auditor }: AuthDeps) => {
         req.identity = id;
         return;
       }
+    }
+    if (hasBearerToken(req)) {
+      throw staleBearerAuthInvalid();
     }
     throw AuthRequired();
   };

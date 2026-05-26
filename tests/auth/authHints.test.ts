@@ -14,11 +14,19 @@ describe("authHints", () => {
     expect(mcpNextActionForAuthError(error)).toBe("contact_admin");
   });
 
-  it("maps invalid token to auth refresh", () => {
+  it("maps invalid token to reconnect for remote MCP", () => {
     const error = AuthInvalid("Invalid or expired Google ID token", {
       reason: "invalid_token",
     });
     expect(authFailureReason(error)).toBe("invalid_token");
-    expect(mcpNextActionForAuthError(error)).toBe("run_npm_auth_google");
+    expect(mcpNextActionForAuthError(error)).toBe("reconnect_mcp_connector");
+  });
+
+  it("honors explicit nextAction in error details", () => {
+    const error = AuthInvalid("Invalid or expired Google ID token", {
+      reason: "invalid_token",
+      nextAction: "run_npm_auth_token",
+    });
+    expect(mcpNextActionForAuthError(error)).toBe("run_npm_auth_token");
   });
 });

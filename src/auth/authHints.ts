@@ -1,4 +1,4 @@
-import { CoreError } from "../errors/index.js";
+import { AuthInvalid, CoreError } from "../errors/index.js";
 
 export type AuthFailureReason =
   | "access_revoked"
@@ -8,6 +8,15 @@ export type AuthFailureReason =
 
 export const accessRevokedMessage = (email: string): string =>
   `Tomcat access revoked for "${email}". Contact an admin.`;
+
+export const mcpSessionExpiredMessage =
+  "MCP session expired or invalid. Disconnect and reconnect the connector in Claude or Cursor.";
+
+export const staleBearerAuthInvalid = (): CoreError =>
+  AuthInvalid(mcpSessionExpiredMessage, {
+    reason: "invalid_token",
+    nextAction: "reconnect_mcp_connector",
+  });
 
 export const authFailureReason = (error: unknown): AuthFailureReason | undefined => {
   if (!(error instanceof CoreError)) return undefined;
@@ -23,12 +32,15 @@ export const authFailureReason = (error: unknown): AuthFailureReason | undefined
 };
 
 export const mcpNextActionForAuthError = (error: unknown): string => {
+  if (error instanceof CoreError && error.details?.["nextAction"]) {
+    return String(error.details["nextAction"]);
+  }
+
   const reason = authFailureReason(error);
   if (reason === "access_revoked") return "contact_admin";
   if (reason === "user_not_provisioned") return "contact_admin";
-  if (reason === "auth_required" || reason === "invalid_token") {
-    return "run_npm_auth_google";
-  }
+  if (reason === "invalid_token") return "reconnect_mcp_connector";
+  if (reason === "auth_required") return "reconnect_mcp_connector";
 
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("auth:token")) return "run_npm_auth_token";

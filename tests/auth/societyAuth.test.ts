@@ -67,6 +67,16 @@ const buildMemoryMcpStore = (): McpOAuthStore => {
       }
       return row;
     },
+    async revokeTokenByHash(hash) {
+      for (const [tokenHash, row] of tokens.entries()) {
+        if (tokenHash === hash && !row.revokedAt) {
+          row.revokedAt = new Date();
+          tokens.set(tokenHash, row);
+          return true;
+        }
+      }
+      return false;
+    },
     async revokeTokensForPair(clientId, principalEmail) {
       for (const [hash, row] of tokens.entries()) {
         if (row.clientId === clientId && row.principalEmail === principalEmail) {
@@ -74,6 +84,18 @@ const buildMemoryMcpStore = (): McpOAuthStore => {
           tokens.set(hash, row);
         }
       }
+      return 0;
+    },
+    async revokeTokensForPrincipalEmail(email) {
+      let n = 0;
+      for (const [hash, row] of tokens.entries()) {
+        if (row.principalEmail === email && !row.revokedAt) {
+          row.revokedAt = new Date();
+          tokens.set(hash, row);
+          n += 1;
+        }
+      }
+      return n;
     },
   };
 };

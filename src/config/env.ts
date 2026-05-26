@@ -38,12 +38,12 @@ const EnvSchema = z.object({
   GOOGLE_OAUTH_WEB_CLIENT_SECRET: z.string().optional(),
   OAUTH_ISSUER_URL: z.string().url().optional(),
   OAUTH_ALLOWED_REDIRECT_URI_PREFIXES: z.string().optional(),
-  OAUTH_ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  OAUTH_ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(14_400),
   OAUTH_REFRESH_TOKEN_TTL_SECONDS: z.coerce
     .number()
     .int()
     .positive()
-    .default(60 * 60 * 24 * 30),
+    .default(60 * 60 * 24 * 90),
   OAUTH_REGISTER_RATE_LIMIT_PER_MINUTE: z.coerce
     .number()
     .int()

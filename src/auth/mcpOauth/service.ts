@@ -6,6 +6,9 @@ import type {
   McpOAuthTokenRecord,
 } from "../../storage/coreStore.js";
 import { sha256Hex, verifyPkceS256 } from "./pkce.js";
+import type { RoleResolver } from "../roleResolver.js";
+import { CoreError } from "../../errors/index.js";
+import { normalizeEmail } from "../email.js";
 
 const PENDING_TTL_SECONDS = 600;
 const AUTHORIZATION_CODE_TTL_SECONDS = 60;
@@ -16,6 +19,7 @@ export type McpOAuthServiceOptions = {
   store: McpOAuthStore;
   accessTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
+  resolveRole?: RoleResolver;
 };
 
 export type RegisterClientInput = {
@@ -171,16 +175,21 @@ export class McpOAuthService {
     if (token.tokenType !== "refresh") return undefined;
     if (token.clientId !== input.clientId) return undefined;
 
-    await this.opts.store.revokeTokensForPair(
-      token.clientId,
-      token.principalEmail,
-    );
+    if (!(await this.assertPrincipalActive(token.principalEmail))) {
+      return undefined;
+    }
+
+    await this.opts.store.revokeTokenByHash(sha256Hex(input.refreshToken));
 
     return this.issueTokenPair({
       clientId: token.clientId,
       principalEmail: token.principalEmail,
       scopes: token.scopes,
     });
+  }
+
+  async revokeAllSessionsForEmail(email: string): Promise<number> {
+    return this.opts.store.revokeTokensForPrincipalEmail(normalizeEmail(email));
   }
 
   async revokeToken(token: string): Promise<void> {
@@ -203,6 +212,21 @@ export class McpOAuthService {
       clientId: record.clientId,
       scopes: record.scopes,
     };
+  }
+
+  private async assertPrincipalActive(email: string): Promise<boolean> {
+    if (!this.opts.resolveRole) return true;
+
+    try {
+      await this.opts.resolveRole(normalizeEmail(email));
+      return true;
+    } catch (error) {
+      if (error instanceof CoreError && error.code === "AUTH_INVALID") {
+        await this.revokeAllSessionsForEmail(email);
+        return false;
+      }
+      throw error;
+    }
   }
 
   private async issueTokenPair(input: {

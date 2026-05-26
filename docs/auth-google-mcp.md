@@ -168,7 +168,7 @@ Réf. Anthropic : [Custom connectors with remote MCP](https://claude.com/docs/co
 | Surface | Token source | Expiry handling |
 | --- | --- | --- |
 | **stdio local** | `.secrets/google-oauth-session.json` | Auto-refresh via refresh token before each tool call |
-| **HTTP remote OAuth** | Tokens opaques émis par `/oauth/token` | Cursor / Claude refresh automatique |
+| **HTTP remote OAuth** | Tokens opaques émis par `/oauth/token` | Access **4h** ; refresh **90j** (sliding à chaque refresh). Usage régulier → pas de reconnexion manuelle. Inactivité >90j → Disconnect / Connect. |
 | **HTTP remote Bearer** | Static `Authorization` header in `mcp.json` | Manual: `npm run auth:token` (~1h) |
 
 First `@tomcat.eu` Google login auto-creates `internal_team` in Postgres. Re-login does **not** restore access after `active=false`.
@@ -182,6 +182,12 @@ First `@tomcat.eu` Google login auto-creates `internal_team` in Postgres. Re-log
 ```sql
 UPDATE users SET active = false, updated_at = now()::text WHERE email = 'user@tomcat.eu';
 ```
+
+Effet **immédiat** sur le prochain appel MCP ou refresh OAuth :
+- `resolveRole` bloque (`access_revoked`, HTTP 401)
+- refresh token rejeté et sessions OAuth purgées en base
+- via `POST /internal/users` avec `active: false` → purge OAuth automatique
+
 
 ## Admin: roles and revoke
 
@@ -208,6 +214,8 @@ Or `POST /internal/users` as an existing admin.
 | OAuth OK in UI but `/mcp` → 401 | Retirer `headers.Authorization` stale de `mcp.json` |
 | MCP fails at start (stdio) | `npm run auth:status` then `npm run auth:google` |
 | Remote MCP → 401 (Bearer mode) | Re-run `npm run auth:token` and update Cursor headers |
+| Remote MCP → 401 (OAuth mode) | Connector should refresh automatically; if not, **Disconnect → Connect** in Claude/Cursor |
+| Remote MCP → 401 `invalid_token` | Session expired: **Disconnect → Connect** (server returns `WWW-Authenticate: error="invalid_token"`) |
 | Remote MCP → 403 | User inactive in `users`, non-internal role, or service token (humans only) |
 | Remote MCP works once then 401 | Google ID token expired (~1h); re-run `npm run auth:token` |
 | Remote MCP → 500 after auth | Check Scaleway logs; tool/connectors issue inside MCP handler |

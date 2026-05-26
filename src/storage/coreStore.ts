@@ -28,6 +28,7 @@ import type {
   StartupBrowsePage,
   StartupBrowseQuery,
 } from "../domain/society.js";
+import type { StartupDirectoryTier } from "../domain/startupDirectory.js";
 
 export type GrepNotesParams = {
   terms: string[];
@@ -97,7 +98,13 @@ export interface CoreStore {
   // Startups
   upsertStartup(startup: Startup): Promise<void>;
   insertStartupIfAbsent(startup: Startup): Promise<boolean>;
+  updateStartupDirectoryClassification(input: {
+    id: string;
+    directoryTier: StartupDirectoryTier;
+    visibilityTier: Startup["visibilityTier"];
+  }): Promise<void>;
   listStartups(): Promise<Startup[]>;
+  listInvestedStartupIds(): Promise<string[]>;
   browseStartups(query: StartupBrowseQuery): Promise<StartupBrowsePage>;
   listStartupIdsWithNotesMissingDirectoryEntry(): Promise<string[]>;
 
@@ -283,5 +290,7 @@ export interface McpOAuthStore {
 
   createToken(row: McpOAuthTokenRecord): Promise<void>;
   findToken(tokenHash: string): Promise<McpOAuthTokenRecord | undefined>;
+  revokeTokenByHash(tokenHash: string): Promise<boolean>;
   revokeTokensForPair(clientId: string, principalEmail: string): Promise<number>;
+  revokeTokensForPrincipalEmail(principalEmail: string): Promise<number>;
 }

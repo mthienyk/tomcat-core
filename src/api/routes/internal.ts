@@ -4,6 +4,7 @@ import { AuthRequired, BadRequest } from "../../errors/index.js";
 import type { BoardBriefService } from "../../services/boardBrief.js";
 import type { CoreStore } from "../../storage/coreStore.js";
 import type { AuthMiddleware } from "../middlewareTypes.js";
+import type { McpOAuthService } from "../../auth/mcpOauth/service.js";
 import { normalizeEmail } from "../../auth/email.js";
 
 const BoardPrepBody = z.object({ portfolioCompanyId: z.string().min(1) });
@@ -67,6 +68,7 @@ export const registerAdminRoutes = (
   app: FastifyInstance,
   auth: AuthMiddleware,
   store: CoreStore,
+  mcpOauth?: McpOAuthService,
 ): void => {
   app.get(
     "/internal/investors",
@@ -121,6 +123,9 @@ export const registerAdminRoutes = (
         active: parsed.data.active,
       };
       await store.upsertUser(user);
+      if (!user.active) {
+        await mcpOauth?.revokeAllSessionsForEmail(user.email);
+      }
       return store.getUserByEmail(parsed.data.email);
     },
   );

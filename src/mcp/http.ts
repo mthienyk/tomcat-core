@@ -1,12 +1,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { Forbidden } from "../errors/index.js";
+import { CoreError, Forbidden } from "../errors/index.js";
 import { can } from "../permissions/policies.js";
 import type { AuthMiddleware } from "../api/middlewareTypes.js";
 import type { AgentToolServices } from "../agent/toolRegistry.js";
 import type { Auditor } from "../audit/audit.js";
 import type { HumanIdentity, Identity } from "../domain/identity.js";
+import { authFailureReason, mcpSessionExpiredMessage } from "../auth/authHints.js";
 import { buildMcpAgentServer } from "./server.js";
 
 export type McpHttpRouteDeps = {
@@ -17,9 +18,10 @@ export type McpHttpRouteDeps = {
   signalHubEnabled?: boolean;
 };
 
-const buildWwwAuthenticate = (
+const buildMcpWwwAuthenticate = (
   req: FastifyRequest,
   fallback: string | undefined,
+  authError?: CoreError,
 ): string => {
   const forwardedHost = req.headers["x-forwarded-host"];
   const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
@@ -35,6 +37,17 @@ const buildWwwAuthenticate = (
   const metadataUrl = base
     ? `${base}/.well-known/oauth-protected-resource`
     : "/.well-known/oauth-protected-resource";
+
+  const reason = authError ? authFailureReason(authError) : undefined;
+  if (reason === "access_revoked") {
+    const description = encodeURIComponent(authError?.message ?? "Access revoked");
+    return `Bearer error="access_denied", error_description="${description}", resource_metadata="${metadataUrl}"`;
+  }
+  if (reason === "invalid_token") {
+    const description = encodeURIComponent(mcpSessionExpiredMessage);
+    return `Bearer error="invalid_token", error_description="${description}", resource_metadata="${metadataUrl}"`;
+  }
+
   return `Bearer realm="mcp", resource_metadata="${metadataUrl}"`;
 };
 
@@ -127,10 +140,23 @@ export const registerMcpHttpRoutes = (
 
     reply.header(
       "WWW-Authenticate",
-      buildWwwAuthenticate(req, deps.resourceMetadataBaseUrl),
+      buildMcpWwwAuthenticate(req, deps.resourceMetadataBaseUrl),
     );
 
-    await preHandler(req, reply);
+    try {
+      await preHandler(req, reply);
+    } catch (error) {
+      if (
+        error instanceof CoreError
+        && (error.code === "AUTH_REQUIRED" || error.code === "AUTH_INVALID")
+      ) {
+        reply.header(
+          "WWW-Authenticate",
+          buildMcpWwwAuthenticate(req, deps.resourceMetadataBaseUrl, error),
+        );
+      }
+      throw error;
+    }
     if (!isHumanMcpCaller(req.identity)) {
       throw Forbidden(mcpForbiddenMessage(req.identity), {
         reason: "mcp_access_denied",

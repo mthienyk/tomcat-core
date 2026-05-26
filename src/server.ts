@@ -153,6 +153,7 @@ export const buildServer = async (
       store: coreStore.mcpOauth,
       accessTokenTtlSeconds: oauthBroker.accessTokenTtlSeconds,
       refreshTokenTtlSeconds: oauthBroker.refreshTokenTtlSeconds,
+      resolveRole: roleResolver,
     });
     resolvers.push(
       createSocietyOauthIdentityResolver({
@@ -491,7 +492,7 @@ export const buildServer = async (
   }
 
   if (coreStore) {
-    registerAdminRoutes(app, auth, coreStore);
+    registerAdminRoutes(app, auth, coreStore, mcpOauthService);
   }
 
   if (llmRegistry.hasAnyProvider()) {
